@@ -289,6 +289,14 @@ Do not guess about Effect, oxc or Bun. Do not trust a plausible claim in a revie
 3. Record it here — never as a comment; `no-comments` rejects one anyway.
 :::
 
+## The config clone
+
+The server pulls the config repo before every authenticated request, one pull at a time. Over
+ssh to GitHub a pull measured 1.7s and a fresh clone 2.0s (three pulls, one clone). Every git call
+times out at 10s, about five times that: long enough for a slow network, short enough that an
+unreachable GitHub or an ssh prompt nobody answers turns into serving the last pull instead of a
+queue of hung requests. Git runs with terminal prompts off for the same reason.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that

@@ -1,23 +1,33 @@
 import * as SqliteClient from '@effect/sql-sqlite-bun/SqliteClient'
 import * as SqliteMigrator from '@effect/sql-sqlite-bun/SqliteMigrator'
 import * as Clock from 'effect/Clock'
+import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Encoding from 'effect/Encoding'
+import { identity } from 'effect/Function'
 import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
+import type { PlatformError } from 'effect/PlatformError'
 import * as Redacted from 'effect/Redacted'
 import * as Schema from 'effect/Schema'
+import * as Semaphore from 'effect/Semaphore'
+import * as Stream from 'effect/Stream'
 import * as Str from 'effect/String'
+import * as HttpServerResponse from 'effect/unstable/http/HttpServerResponse'
 import * as HttpApiBuilder from 'effect/unstable/httpapi/HttpApiBuilder'
+import * as ChildProcess from 'effect/unstable/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import * as SqlClient from 'effect/unstable/sql/SqlClient'
 import * as SqlSchema from 'effect/unstable/sql/SqlSchema'
 import {
   AdminOnly,
   Authentication,
+  CONFIG_STALE_HEADER,
+  ConfigPull,
   CurrentDevice,
   Device,
   NotAnAdmin,
@@ -33,6 +43,37 @@ const DATABASE_FILE_NAME = 'pie.sqlite'
 const BOOTSTRAP_DEVICE_NAME = 'admin'
 
 const INVITE_LIFETIME = Duration.hours(1)
+
+const CONFIG_CHECKOUT_DIRECTORY_NAME = 'config'
+
+const GIT_TIMEOUT = Duration.seconds(10)
+
+export class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()('GitCommandFailed', {
+  gitArguments: Schema.Array(Schema.String),
+  exitCode: Schema.Int,
+  gitOutput: Schema.String,
+}) {
+  override get message(): string {
+    return `git ${this.gitArguments.join(' ')} exited with ${this.exitCode}: ${this.gitOutput.trim()}`
+  }
+}
+
+export class GitCommandTimedOut extends Schema.TaggedError<GitCommandTimedOut>()(
+  'GitCommandTimedOut',
+  { gitArguments: Schema.Array(Schema.String) },
+) {
+  override get message(): string {
+    return `git ${this.gitArguments.join(' ')} took longer than ${Duration.format(GIT_TIMEOUT)}.`
+  }
+}
+
+export class ConfigRepository extends Context.Service<
+  ConfigRepository,
+  {
+    readonly checkoutDirectory: string
+    readonly pull: Effect.Effect<string, GitCommandFailed | GitCommandTimedOut | PlatformError>
+  }
+>()('pie/ConfigRepository') {}
 
 const createDevicesAndInvites = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -219,12 +260,96 @@ const podsHandlers = HttpApiBuilder.group(
   }),
 )
 
-export const apiLayer = (dataDirectory: string) => {
+export const runGit = Effect.fn('runGit')(
+  function* (gitArguments: readonly string[]) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const gitProcess = yield* spawner.spawn(
+      ChildProcess.make('git', gitArguments, {
+        extendEnv: true,
+        env: { GIT_TERMINAL_PROMPT: '0' },
+      }),
+    )
+    const [gitOutput, exitCode] = yield* Effect.all(
+      [Stream.mkString(Stream.decodeText(gitProcess.all)), gitProcess.exitCode],
+      { concurrency: 'unbounded' },
+    )
+
+    if (exitCode === 0) {
+      return gitOutput
+    }
+
+    return yield* new GitCommandFailed({ gitArguments, exitCode, gitOutput })
+  },
+  Effect.scoped,
+  (gitCommand, gitArguments) =>
+    Effect.timeoutOrElse(gitCommand, {
+      duration: GIT_TIMEOUT,
+      orElse: () => Effect.fail(new GitCommandTimedOut({ gitArguments })),
+    }),
+)
+
+const configRepositoryLayer = (dataDirectory: string, configRepositoryUrl: string) =>
+  Layer.effect(
+    ConfigRepository,
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const checkoutDirectory = path.join(dataDirectory, CONFIG_CHECKOUT_DIRECTORY_NAME)
+      const alreadyCloned = yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))
+      const pullPermit = yield* Semaphore.make(1)
+
+      yield* runGit(['clone', '--quiet', configRepositoryUrl, checkoutDirectory]).pipe(
+        Effect.when(Effect.succeed(!alreadyCloned)),
+      )
+
+      return ConfigRepository.of({
+        checkoutDirectory,
+        pull: runGit(['-C', checkoutDirectory, 'pull', '--ff-only', '--quiet']).pipe(
+          Semaphore.withPermits(pullPermit, 1),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+      })
+    }),
+  )
+
+const configPullLayer = Layer.effect(
+  ConfigPull,
+  Effect.gen(function* () {
+    const configRepository = yield* ConfigRepository
+    const serveLastPull = (pullError: GitCommandFailed | GitCommandTimedOut | PlatformError) =>
+      Effect.logWarning(`Serving the last config pull. ${pullError.message}`).pipe(
+        Effect.as(HttpServerResponse.setHeader(CONFIG_STALE_HEADER, 'true')),
+      )
+
+    return ConfigPull.of((httpEffect) =>
+      configRepository.pull.pipe(
+        Effect.as(identity<HttpServerResponse.HttpServerResponse>),
+        Effect.catchTags({
+          GitCommandFailed: serveLastPull,
+          GitCommandTimedOut: serveLastPull,
+          PlatformError: serveLastPull,
+        }),
+        Effect.flatMap((markResponse) => Effect.map(httpEffect, markResponse)),
+      ),
+    )
+  }),
+)
+
+export const apiLayer = (dataDirectory: string, configRepositoryUrl: string) => {
   const databaseAndMiddleware = Layer.mergeAll(
     authenticationLayer,
     adminOnlyLayer,
+    configPullLayer,
     Layer.effectDiscard(bootstrapAdminInvite),
-  ).pipe(Layer.provideMerge(databaseLayer(dataDirectory)))
+  ).pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(
+        databaseLayer(dataDirectory),
+        configRepositoryLayer(dataDirectory, configRepositoryUrl),
+      ),
+    ),
+  )
   const handlers = Layer.mergeAll(devicesHandlers, podsHandlers).pipe(
     Layer.provide(databaseAndMiddleware),
   )

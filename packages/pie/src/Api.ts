@@ -6,6 +6,8 @@ import * as HttpApiGroup from 'effect/unstable/httpapi/HttpApiGroup'
 import * as HttpApiMiddleware from 'effect/unstable/httpapi/HttpApiMiddleware'
 import * as HttpApiSecurity from 'effect/unstable/httpapi/HttpApiSecurity'
 
+export const CONFIG_STALE_HEADER = 'pie-config-stale'
+
 export const DeviceKind = Schema.Literals(['admin', 'pod'])
 
 export type DeviceKind = typeof DeviceKind.Type
@@ -67,12 +69,16 @@ export class AdminOnly extends HttpApiMiddleware.Service<AdminOnly, { requires: 
   { error: NotAnAdmin },
 ) {}
 
+export class ConfigPull extends HttpApiMiddleware.Service<ConfigPull>()('pie/ConfigPull') {}
+
 export class DevicesGroup extends HttpApiGroup.make('devices')
   .add(HttpApiEndpoint.get('whoami', '/whoami', { success: Device }))
+  .middleware(ConfigPull)
   .middleware(Authentication) {}
 
 export class PodsGroup extends HttpApiGroup.make('pods')
   .add(HttpApiEndpoint.get('list', '/pods', { success: Schema.Array(Device) }))
+  .middleware(ConfigPull)
   .middleware(AdminOnly)
   .middleware(Authentication) {}
 
