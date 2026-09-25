@@ -289,6 +289,12 @@ Do not guess about Effect, oxc or Bun. Do not trust a plausible claim in a revie
 3. Record it here — never as a comment; `no-comments` rejects one anyway.
 :::
 
+## Commits
+
+Commit at the end of every implementation phase, without being asked. A phase is a step that
+leaves the gate green: a scaffold, one command, one schema. One phase is one commit: never batch
+several phases together, and never commit a red gate. Pushing still waits to be asked.
+
 ## Pull requests
 
 Conventional-commit format for the PR title AND every commit subject: `fix(lint): …`,
