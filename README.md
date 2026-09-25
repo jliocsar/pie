@@ -1,7 +1,14 @@
-# agents-boilerplate
+# pie
 
-An Effect v4 TypeScript monorepo starting point: toolchain, lint rules and conventions, no product
-code. Clone it, add a package under `packages/`, and the gate is already wired.
+Turns any Linux box into a Claude Code / Pi pod. One `pie` binary: the server, the admin CLI and the
+pod side.
+
+```sh
+curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh
+```
+
+Pushing a `v*` tag builds `pie-linux-x64` and `pie-linux-arm64` and attaches them and `setup.sh` to
+the release.
 
 `AGENTS.md` is the full spec and the thing agents read. This file is the short human version.
 

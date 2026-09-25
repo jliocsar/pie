@@ -1,0 +1,25 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck && bun run lint && bun run test && bun run fmt:check
+      - run: bun pm pkg set version="${GITHUB_REF_NAME#v}"
+        working-directory: packages/pie
+      - run: bun run build
+      - run: gh release create "$GITHUB_REF_NAME" dist/pie-linux-x64 dist/pie-linux-arm64 setup.sh --verify-tag --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

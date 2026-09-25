@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Effect v4 TypeScript monorepo boilerplate. Toolchain, lint rules, conventions — no product code.
+pie: turns any Linux box into a Claude Code / Pi pod. An Effect v4 TypeScript monorepo; the `pie`
+binary is `packages/pie`, compiled with `bun build --compile`.
 Members live in `packages/*`. `packages/tsconfig` holds the shared TS base every member extends.
 
 Toolchain is oxc + TypeScript 7: `oxlint` (lint), `oxfmt` (format), `typescript@7` with
@@ -74,6 +75,21 @@ The published base follows <https://www.effect.solutions/tsconfig> minus what a 
 cannot use, and `begone-slop`'s README says which four recommendations are out and why. Everything
 local to this repo lives in `packages/tsconfig/base.json`, which today is `types: ["bun"]` and
 nothing else.
+
+## Effect version
+
+Every Effect package is pinned EXACTLY to the same v4 release candidate. The beta line's platform
+packages depend on a caret range that resolves to the rc, so a beta pin installs a mixed tree that
+fails at import with a missing `effect/*` module (measured).
+
+The `effect-best-practices` skill predates the rc, and some names it uses were renamed since. Where
+the skill and `node_modules/effect/src` disagree, the source wins.
+
+## Releases
+
+The binary's version is the CLI package's `version` field, bundled at compile time. The committed
+value stays `0.0.0`; the release workflow overwrites it from the tag before building, so tagging is
+the whole release.
 
 ## First
 
