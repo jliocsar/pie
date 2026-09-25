@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json.schemastore.org/package",
+  "name": "@boilerplate/tsconfig",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared TypeScript base config for all packages"
+}

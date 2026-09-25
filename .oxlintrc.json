@@ -1,0 +1,103 @@
+{
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+
+  // The Effect rules. The preset also sets `options.typeAware`, which they all
+  // require. Extends are applied in order and rules below take precedence.
+  "extends": [
+    "./node_modules/@effect/tsgo/oxlint-presets/recommended.json",
+    "./node_modules/@jliocsar/begone-slop/preset.json"
+  ],
+
+  // Listing plugins explicitly is what turns off oxlint's unicorn/oxc defaults.
+  "plugins": ["typescript", "promise", "effecttsgo"],
+
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error"
+  },
+
+  "ignorePatterns": ["**/dist/**", "**/*.d.ts", ".claude/**", ".agents/**", ".husky/**"],
+
+  // `jsPlugins` resolves a package specifier; `extends` above does not, hence
+  // the path. The severities live in the package's own `preset.json`.
+  "jsPlugins": ["@jliocsar/begone-slop"],
+
+  "rules": {
+    // Leaf imports only. A barrel is the bare root, `effect/testing`, or a single
+    // lowercase segment under `unstable/` — every leaf module is PascalCase.
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "^effect$|^effect/testing$|^effect/unstable/[a-z0-9-]+$",
+            "allowTypeImports": true,
+            "message": "Import the leaf module, not the barrel: `effect/Effect`, `effect/unstable/schema/Schema`."
+          }
+        ]
+      }
+    ],
+
+    "promise/prefer-await-to-then": "error",
+
+    "id-length": ["error", { "min": 2, "exceptions": ["i", "j"], "properties": "never" }],
+
+    "curly": ["error", "all"],
+    "no-else-return": ["error", { "allowElseIf": false }],
+    "no-nested-ternary": "error",
+    "prefer-template": "error",
+    "complexity": ["error", 15],
+    // Off, not tuned. One `Schema.TaggedErrorClass` per failure reason is this
+    // codebase's error doctrine, so a module that can fail two ways already
+    // declares two classes and a service tag makes a third. A cap of one does not
+    // shrink a module, it scatters one concern across several files.
+    "max-classes-per-file": "off",
+    // 1000, not the default 300. Same reasoning: a line cap does not shrink code,
+    // it relocates it into a module that exists only to sit under the cap. High
+    // enough to catch a genuinely sprawling file, not a coherent one.
+    "max-lines": ["error", 1000],
+    // 200 because Effect.fn bodies are a linear chain of `yield*` steps; each step
+    // is already its own composable Effect, so "extract a helper" doesn't apply.
+    "max-lines-per-function": [
+      "error",
+      { "max": 200, "skipBlankLines": true, "skipComments": true, "IIFEs": true }
+    ],
+    // Effect.fn wraps a generator that may have zero `yield*`.
+    "require-yield": "off",
+    "no-empty": ["error", { "allowEmptyCatch": true }],
+
+    // Demands `readonly` on every object parameter; never in strictTypeChecked.
+    "typescript/prefer-readonly-parameter-types": "off",
+    "typescript/array-type": ["error", { "default": "array", "readonly": "array" }],
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
+    ],
+    "typescript/restrict-template-expressions": [
+      "error",
+      { "allowNumber": true, "allowBoolean": true }
+    ]
+  },
+
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/test/**/*.ts"],
+      "rules": {
+        "begone-slop/expect-padding": "error",
+        "max-lines-per-function": "off",
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-confusing-void-expression": "off",
+        "typescript/no-unnecessary-type-conversion": "off"
+      }
+    }
+  ]
+}
