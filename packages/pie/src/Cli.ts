@@ -1,7 +1,15 @@
+import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
+import * as Flag from 'effect/unstable/cli/Flag'
+import { serveLayer } from './Server.ts'
+
+const DEFAULT_HOST = '127.0.0.1'
+
+const DEFAULT_PORT = 7430
 
 export class CommandNotBuiltYet extends Schema.TaggedError<CommandNotBuiltYet>()(
   'CommandNotBuiltYet',
@@ -17,7 +25,33 @@ export class CommandNotBuiltYet extends Schema.TaggedError<CommandNotBuiltYet>()
 const failAsNotBuiltYet = (commandPath: string) => () =>
   Effect.fail(new CommandNotBuiltYet({ commandPath }))
 
-const serve = Command.make('serve', {}, failAsNotBuiltYet('serve'))
+const defaultDataDirectory = Config.String('XDG_DATA_HOME').pipe(
+  Config.map((dataHome) => `${dataHome}/pie`),
+  Config.orElse(() => Config.String('HOME').pipe(Config.map((home) => `${home}/.local/share/pie`))),
+)
+
+const serve = Command.make(
+  'serve',
+  {
+    host: Flag.String('host').pipe(
+      Flag.withFallbackConfig(Config.String('PIE_HOST')),
+      Flag.withDefault(DEFAULT_HOST),
+    ),
+    port: Flag.Int('port').pipe(
+      Flag.withFallbackConfig(Config.Port('PIE_PORT')),
+      Flag.withDefault(DEFAULT_PORT),
+    ),
+    dataDirectory: Flag.String('data-dir').pipe(
+      Flag.withFallbackConfig(
+        Config.String('PIE_DATA_DIR').pipe(Config.orElse(() => defaultDataDirectory)),
+      ),
+    ),
+    configRepositoryUrl: Flag.String('config-repo').pipe(
+      Flag.withFallbackConfig(Config.String('PIE_CONFIG_REPO')),
+    ),
+  },
+  (settings) => Layer.launch(serveLayer(settings)),
+)
 
 const login = Command.make(
   'login',

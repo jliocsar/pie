@@ -6,6 +6,8 @@ import * as HttpApiGroup from 'effect/unstable/httpapi/HttpApiGroup'
 import * as HttpApiMiddleware from 'effect/unstable/httpapi/HttpApiMiddleware'
 import * as HttpApiSecurity from 'effect/unstable/httpapi/HttpApiSecurity'
 
+export const CLIENT_VERSION_HEADER = 'pie-client-version'
+
 export const CONFIG_STALE_HEADER = 'pie-config-stale'
 
 export const DeviceKind = Schema.Literals(['admin', 'pod'])

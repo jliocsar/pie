@@ -1,3 +1,4 @@
+import * as BunHttpServer from '@effect/platform-bun/BunHttpServer'
 import * as SqliteClient from '@effect/sql-sqlite-bun/SqliteClient'
 import * as SqliteMigrator from '@effect/sql-sqlite-bun/SqliteMigrator'
 import * as Clock from 'effect/Clock'
@@ -17,6 +18,10 @@ import * as Schema from 'effect/Schema'
 import * as Semaphore from 'effect/Semaphore'
 import * as Stream from 'effect/Stream'
 import * as Str from 'effect/String'
+import * as Headers from 'effect/unstable/http/Headers'
+import * as HttpMiddleware from 'effect/unstable/http/HttpMiddleware'
+import * as HttpRouter from 'effect/unstable/http/HttpRouter'
+import * as HttpServerRequest from 'effect/unstable/http/HttpServerRequest'
 import * as HttpServerResponse from 'effect/unstable/http/HttpServerResponse'
 import * as HttpApiBuilder from 'effect/unstable/httpapi/HttpApiBuilder'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
@@ -26,6 +31,7 @@ import * as SqlSchema from 'effect/unstable/sql/SqlSchema'
 import {
   AdminOnly,
   Authentication,
+  CLIENT_VERSION_HEADER,
   CONFIG_STALE_HEADER,
   ConfigPull,
   CurrentDevice,
@@ -356,3 +362,28 @@ export const apiLayer = (dataDirectory: string, configRepositoryUrl: string) => 
 
   return HttpApiBuilder.layer(PieApi).pipe(Layer.provide(handlers))
 }
+
+const logRequestWithClientVersion = <Failure, Requirements>(
+  httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, Failure, Requirements>,
+) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const clientVersion = Headers.get(request.headers, CLIENT_VERSION_HEADER).pipe(
+      Option.getOrElse(() => 'unknown'),
+    )
+
+    return yield* HttpMiddleware.logger(httpApp).pipe(
+      Effect.annotateLogs('client.version', clientVersion),
+    )
+  })
+
+export const serveLayer = (settings: {
+  readonly host: string
+  readonly port: number
+  readonly dataDirectory: string
+  readonly configRepositoryUrl: string
+}) =>
+  HttpRouter.serve(apiLayer(settings.dataDirectory, settings.configRepositoryUrl), {
+    disableLogger: true,
+    middleware: logRequestWithClientVersion,
+  }).pipe(Layer.provide(BunHttpServer.layer({ hostname: settings.host, port: settings.port })))

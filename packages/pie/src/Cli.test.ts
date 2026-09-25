@@ -16,7 +16,6 @@ describe('pie', () => {
   test('--version succeeds', () => bunServicesRuntime.runPromise(runPie(['--version'])))
 
   test.each([
-    { commandLine: ['serve'] },
     { commandLine: ['login', 'some-invite'] },
     { commandLine: ['invite', 'new'] },
     { commandLine: ['pods', 'ls'] },
