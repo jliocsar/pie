@@ -96,7 +96,9 @@
         "max-lines-per-function": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-confusing-void-expression": "off",
-        "typescript/no-unnecessary-type-conversion": "off"
+        "typescript/no-unnecessary-type-conversion": "off",
+        // Every test is its own entry point, which is where the rule wants layers provided.
+        "effecttsgo/strict-effect-provide": "off"
       }
     }
   ]
