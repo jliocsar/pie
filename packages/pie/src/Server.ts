@@ -4,6 +4,7 @@ import * as SqliteMigrator from '@effect/sql-sqlite-bun/SqliteMigrator'
 import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
+import * as DateTime from 'effect/DateTime'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Encoding from 'effect/Encoding'
@@ -36,8 +37,15 @@ import {
   ConfigPull,
   CurrentDevice,
   Device,
+  DeviceKind,
+  DeviceNameTaken,
+  Invite,
+  InviteAlreadyUsed,
+  InviteExpired,
+  InviteUnknown,
   NotAnAdmin,
   PieApi,
+  RecipeNotFound,
   TokenMissing,
   TokenUnknown,
 } from './Api.ts'
@@ -46,7 +54,11 @@ const SECRET_BYTE_LENGTH = 32
 
 const DATABASE_FILE_NAME = 'pie.sqlite'
 
-const BOOTSTRAP_DEVICE_NAME = 'admin'
+const MASTER_DEVICE_NAME = 'master'
+
+const SERVER_URL_SETTING = 'server_url'
+
+const GENERATED_NAME_BYTE_LENGTH = 3
 
 const INVITE_LIFETIME = Duration.hours(1)
 
@@ -70,6 +82,23 @@ export class GitCommandTimedOut extends Schema.TaggedError<GitCommandTimedOut>()
 ) {
   override get message(): string {
     return `git ${this.gitArguments.join(' ')} took longer than ${Duration.format(GIT_TIMEOUT)}.`
+  }
+}
+
+export class AlreadyBootstrapped extends Schema.TaggedError<AlreadyBootstrapped>()(
+  'AlreadyBootstrapped',
+  {},
+) {
+  override get message(): string {
+    return 'pie already has an admin device. Invite more devices from it with `pie invite new`.'
+  }
+}
+
+export class ServerUrlMissing extends Schema.TaggedError<ServerUrlMissing>()('ServerUrlMissing', {
+  dataDirectory: Schema.String,
+}) {
+  override get message(): string {
+    return `pie serve hasn't run with ${this.dataDirectory} yet, so there's no server URL to put in the invite. Start pie serve first.`
   }
 }
 
@@ -108,6 +137,17 @@ const createDevicesAndInvites = Effect.gen(function* () {
   `
 })
 
+const createSettings = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+
+  yield* sql`
+    CREATE TABLE settings (
+      name TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `
+})
+
 export const generateSecret = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto
   const secretBytes = yield* crypto.randomBytes(SECRET_BYTE_LENGTH)
@@ -133,6 +173,7 @@ export const databaseLayer = (dataDirectory: string) =>
       return SqliteMigrator.layer({
         loader: SqliteMigrator.fromRecord({
           '1_create_devices_and_invites': createDevicesAndInvites,
+          '2_create_settings': createSettings,
         }),
       }).pipe(
         Layer.provideMerge(
@@ -146,39 +187,99 @@ export const databaseLayer = (dataDirectory: string) =>
     }),
   )
 
-const createBootstrapInvite = Effect.fn('createBootstrapInvite')(function* (now: number) {
+const countAdminDevices = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  const invite = yield* generateSecret
-  const inviteHash = yield* hashSecret(invite)
+  const { adminCount } = yield* SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: Schema.Struct({ adminCount: Schema.Int }),
+    execute: () => sql`SELECT count(*) AS admin_count FROM devices WHERE kind = 'admin'`,
+  })(undefined)
+
+  return adminCount
+})
+
+const insertInvite = Effect.fn('insertInvite')(function* (invite: {
+  readonly deviceName: string
+  readonly kind: DeviceKind
+  readonly recipeName: Option.Option<string>
+  readonly createdBy: Option.Option<string>
+  readonly serverUrl: string
+}) {
+  const sql = yield* SqlClient.SqlClient
+  const now = yield* Clock.currentTimeMillis
+  const secret = yield* generateSecret
+  const inviteHash = yield* hashSecret(secret)
+  const expiresAt = now + Duration.toMillis(INVITE_LIFETIME)
 
   yield* sql`INSERT INTO invites ${sql.insert({
     hash: inviteHash,
-    name: BOOTSTRAP_DEVICE_NAME,
-    kind: 'admin',
-    expiresAt: now + Duration.toMillis(INVITE_LIFETIME),
+    name: invite.deviceName,
+    kind: invite.kind,
+    recipe: Option.getOrNull(invite.recipeName),
+    expiresAt,
+    createdBy: Option.getOrNull(invite.createdBy),
   })}`
-  yield* Effect.logInfo(`No devices yet. Log in within the hour with: pie login ${invite}`)
 
-  return invite
+  return {
+    invite: yield* Schema.encodeEffect(Invite)({ serverUrl: invite.serverUrl, secret }),
+    deviceName: invite.deviceName,
+    kind: invite.kind,
+    expiresAt: DateTime.makeUnsafe(expiresAt),
+  }
 })
 
-export const bootstrapAdminInvite = Effect.gen(function* () {
+const recordServerUrl = Effect.fn('recordServerUrl')(function* (
+  serverUrl: string,
+  dataDirectory: string,
+) {
   const sql = yield* SqlClient.SqlClient
-  const now = yield* Clock.currentTimeMillis
-  const countDevicesAndPendingInvites = SqlSchema.findOne({
-    Request: Schema.Int,
-    Result: Schema.Struct({ accessCount: Schema.Int }),
-    execute: (currentTime) => sql`
-      SELECT
-        (SELECT count(*) FROM devices)
-        + (SELECT count(*) FROM invites WHERE redeemed_at IS NULL AND expires_at > ${currentTime})
-        AS access_count
-    `,
-  })
-  const { accessCount } = yield* countDevicesAndPendingInvites(now)
 
-  return yield* createBootstrapInvite(now).pipe(Effect.when(Effect.succeed(accessCount === 0)))
+  yield* sql`
+    INSERT INTO settings (name, value) VALUES (${SERVER_URL_SETTING}, ${serverUrl})
+    ON CONFLICT (name) DO UPDATE SET value = excluded.value
+  `
+  yield* Effect.logInfo(
+    `No admin device yet. Run \`pie bootstrap --data-dir ${dataDirectory}\` on this box to get the master invite.`,
+  ).pipe(Effect.when(Effect.map(countAdminDevices, (adminCount) => adminCount === 0)))
 })
+
+export const bootstrapMasterInvite = Effect.fn('bootstrapMasterInvite')(
+  function* (dataDirectory: string) {
+    const sql = yield* SqlClient.SqlClient
+    const readServerUrl = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: Schema.Struct({ value: Schema.String }),
+      execute: (settingName) => sql`SELECT value FROM settings WHERE name = ${settingName}`,
+    })
+
+    yield* countAdminDevices.pipe(
+      Effect.filterOrFail(
+        (adminCount) => adminCount === 0,
+        () => new AlreadyBootstrapped(),
+      ),
+    )
+
+    const serverUrl = yield* readServerUrl(SERVER_URL_SETTING).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new ServerUrlMissing({ dataDirectory })),
+          onSome: (setting) => Effect.succeed(setting.value),
+        }),
+      ),
+    )
+
+    yield* sql`DELETE FROM invites WHERE name = ${MASTER_DEVICE_NAME} AND redeemed_at IS NULL`
+
+    return yield* insertInvite({
+      deviceName: MASTER_DEVICE_NAME,
+      kind: 'admin',
+      recipeName: Option.none(),
+      createdBy: Option.none(),
+      serverUrl,
+    })
+  },
+  (bootstrap) => Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(bootstrap)),
+)
 
 const findDeviceByTokenHash = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -266,6 +367,182 @@ const podsHandlers = HttpApiBuilder.group(
   }),
 )
 
+const PendingInvite = Schema.Struct({
+  name: Schema.String,
+  kind: DeviceKind,
+  recipe: Schema.OptionFromNullOr(Schema.String),
+  expiresAt: Schema.Int,
+  redeemedAt: Schema.OptionFromNullOr(Schema.Int),
+  createdBy: Schema.OptionFromNullOr(Schema.String),
+})
+
+const failWhenNameTaken = Effect.fn('failWhenNameTaken')(function* (deviceName: string) {
+  const sql = yield* SqlClient.SqlClient
+  const now = yield* Clock.currentTimeMillis
+  const countNameHolders = SqlSchema.findOne({
+    Request: Schema.String,
+    Result: Schema.Struct({ holderCount: Schema.Int }),
+    execute: (name) => sql`
+      SELECT
+        (SELECT count(*) FROM devices WHERE name = ${name})
+        + (SELECT count(*) FROM invites
+           WHERE name = ${name} AND redeemed_at IS NULL AND expires_at > ${now})
+        AS holder_count
+    `,
+  })
+
+  yield* countNameHolders(deviceName).pipe(
+    Effect.filterOrFail(
+      ({ holderCount }) => holderCount === 0,
+      () => new DeviceNameTaken({ deviceName }),
+    ),
+  )
+})
+
+const redeemInvite = Effect.fn('redeemInvite')(
+  function* (secret: string) {
+    const sql = yield* SqlClient.SqlClient
+    const now = yield* Clock.currentTimeMillis
+    const inviteHash = yield* hashSecret(secret)
+    const findInvite = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: PendingInvite,
+      execute: (hash) => sql`
+      SELECT name, kind, recipe, expires_at, redeemed_at, created_by
+      FROM invites
+      WHERE hash = ${hash}
+    `,
+    })
+    const invite = yield* findInvite(inviteHash).pipe(
+      Effect.flatMap(
+        Option.match({ onNone: () => Effect.fail(new InviteUnknown()), onSome: Effect.succeed }),
+      ),
+      Effect.filterOrFail(
+        (foundInvite) => Option.isNone(foundInvite.redeemedAt),
+        (foundInvite) => new InviteAlreadyUsed({ deviceName: foundInvite.name }),
+      ),
+      Effect.filterOrFail(
+        (foundInvite) => now < foundInvite.expiresAt,
+        (foundInvite) =>
+          new InviteExpired({
+            deviceName: foundInvite.name,
+            expiredAt: DateTime.makeUnsafe(foundInvite.expiresAt),
+          }),
+      ),
+    )
+
+    yield* sql`UPDATE invites SET redeemed_at = ${now} WHERE hash = ${inviteHash}`
+    yield* failWhenNameTaken(invite.name)
+
+    const token = yield* generateSecret
+    const tokenHash = yield* hashSecret(token)
+
+    yield* sql`INSERT INTO devices ${sql.insert({
+      name: invite.name,
+      kind: invite.kind,
+      tokenHash,
+      recipe: Option.getOrNull(invite.recipe),
+      invitedBy: Option.getOrNull(invite.createdBy),
+      lastSeenAt: now,
+    })}`
+
+    return {
+      token,
+      device: {
+        name: invite.name,
+        kind: invite.kind,
+        recipe: invite.recipe,
+        lastUpCommit: Option.none(),
+        invitedBy: invite.createdBy,
+        lastSeenAt: Option.some(DateTime.makeUnsafe(now)),
+      },
+    }
+  },
+  (redeem) => Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(redeem)),
+)
+
+const joinHandlers = HttpApiBuilder.group(
+  PieApi,
+  'join',
+  Effect.fn(function* (handlers) {
+    const services = yield* Effect.context<SqlClient.SqlClient | Crypto.Crypto>()
+
+    return handlers.handle('join', ({ payload }) =>
+      redeemInvite(payload.secret).pipe(
+        Effect.provide(services),
+        Effect.catchTags({
+          NoSuchElementError: Effect.die,
+          PlatformError: Effect.die,
+          SchemaError: Effect.die,
+          SqlError: Effect.die,
+        }),
+      ),
+    )
+  }),
+)
+
+const generateDeviceName = Effect.fn('generateDeviceName')(function* (kind: DeviceKind) {
+  const crypto = yield* Crypto.Crypto
+  const suffixBytes = yield* crypto.randomBytes(GENERATED_NAME_BYTE_LENGTH)
+
+  return `${kind}-${Encoding.encodeHex(suffixBytes)}`
+})
+
+const invitesHandlers = (serverUrl: string) =>
+  HttpApiBuilder.group(
+    PieApi,
+    'invites',
+    Effect.fn(function* (handlers) {
+      const services = yield* Effect.context<SqlClient.SqlClient | Crypto.Crypto>()
+      const sql = yield* SqlClient.SqlClient
+      const fileSystem = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const configRepository = yield* ConfigRepository
+      const failWhenRecipeMissing = (recipeName: string) =>
+        fileSystem
+          .exists(path.join(configRepository.checkoutDirectory, 'recipes', `${recipeName}.toml`))
+          .pipe(
+            Effect.filterOrFail(
+              (recipeExists) => recipeExists,
+              () => new RecipeNotFound({ recipeName }),
+            ),
+          )
+
+      return handlers.handle('create', ({ payload }) =>
+        Effect.gen(function* () {
+          const creator = yield* CurrentDevice
+          const deviceName = yield* Option.match(payload.deviceName, {
+            onNone: () => generateDeviceName(payload.kind),
+            onSome: Effect.succeed,
+          })
+
+          yield* Option.match(payload.recipeName, {
+            onNone: () => Effect.void,
+            onSome: failWhenRecipeMissing,
+          })
+          yield* failWhenNameTaken(deviceName)
+
+          return yield* insertInvite({
+            deviceName,
+            kind: payload.kind,
+            recipeName: payload.recipeName,
+            createdBy: Option.some(creator.name),
+            serverUrl,
+          })
+        }).pipe(
+          sql.withTransaction,
+          Effect.provide(services),
+          Effect.catchTags({
+            NoSuchElementError: Effect.die,
+            PlatformError: Effect.die,
+            SchemaError: Effect.die,
+            SqlError: Effect.die,
+          }),
+        ),
+      )
+    }),
+  )
+
 export const runGit = Effect.fn('runGit')(
   function* (gitArguments: readonly string[]) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -342,12 +619,17 @@ const configPullLayer = Layer.effect(
   }),
 )
 
-export const apiLayer = (dataDirectory: string, configRepositoryUrl: string) => {
+export const apiLayer = (settings: {
+  readonly dataDirectory: string
+  readonly configRepositoryUrl: string
+  readonly serverUrl: string
+}) => {
+  const { dataDirectory, configRepositoryUrl, serverUrl } = settings
   const databaseAndMiddleware = Layer.mergeAll(
     authenticationLayer,
     adminOnlyLayer,
     configPullLayer,
-    Layer.effectDiscard(bootstrapAdminInvite),
+    Layer.effectDiscard(recordServerUrl(serverUrl, dataDirectory)),
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -356,9 +638,12 @@ export const apiLayer = (dataDirectory: string, configRepositoryUrl: string) => 
       ),
     ),
   )
-  const handlers = Layer.mergeAll(devicesHandlers, podsHandlers).pipe(
-    Layer.provide(databaseAndMiddleware),
-  )
+  const handlers = Layer.mergeAll(
+    joinHandlers,
+    devicesHandlers,
+    podsHandlers,
+    invitesHandlers(serverUrl),
+  ).pipe(Layer.provide(databaseAndMiddleware))
 
   return HttpApiBuilder.layer(PieApi).pipe(Layer.provide(handlers))
 }
@@ -382,8 +667,9 @@ export const serveLayer = (settings: {
   readonly port: number
   readonly dataDirectory: string
   readonly configRepositoryUrl: string
+  readonly serverUrl: string
 }) =>
-  HttpRouter.serve(apiLayer(settings.dataDirectory, settings.configRepositoryUrl), {
+  HttpRouter.serve(apiLayer(settings), {
     disableLogger: true,
     middleware: logRequestWithClientVersion,
   }).pipe(Layer.provide(BunHttpServer.layer({ hostname: settings.host, port: settings.port })))

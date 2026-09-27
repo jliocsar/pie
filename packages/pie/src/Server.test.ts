@@ -1,144 +1,110 @@
-import * as BunHttpServer from '@effect/platform-bun/BunHttpServer'
 import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
-import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
-import * as HttpRouter from 'effect/unstable/http/HttpRouter'
 import * as SqlClient from 'effect/unstable/sql/SqlClient'
-import { CONFIG_STALE_HEADER, Device } from './Api.ts'
-import { apiLayer, bootstrapAdminInvite, databaseLayer, hashSecret, runGit } from './Server.ts'
+import { CONFIG_STALE_HEADER, CreatedInvite, Device, Invite, Joined } from './Api.ts'
+import {
+  AlreadyBootstrapped,
+  bootstrapMasterInvite,
+  databaseLayer,
+  hashSecret,
+  ServerUrlMissing,
+} from './Server.ts'
+import {
+  ADMIN_TOKEN,
+  commitToConfigSource,
+  inFreshDirectory,
+  jsonRequest,
+  POD_TOKEN,
+  SERVER_URL,
+  startPie,
+  startSeededPie,
+} from './test/TestPie.ts'
 
-const ADMIN_TOKEN = 'admin-token'
+const ADMIN_HEADERS = { authorization: `Bearer ${ADMIN_TOKEN}` }
 
-const POD_TOKEN = 'pod-token'
+const POD_HEADERS = { authorization: `Bearer ${POD_TOKEN}` }
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
 
-const inFreshDirectory = <Success, Failure, Requirements>(
-  useDirectory: (dataDirectory: string) => Effect.Effect<Success, Failure, Requirements>,
-) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem
-    const dataDirectory = yield* fileSystem.makeTempDirectoryScoped()
+const decodeResponse =
+  <Decoded, Encoded>(schema: Schema.Codec<Decoded, Encoded>) =>
+  (response: Response) =>
+    Effect.promise(() => response.json()).pipe(Effect.flatMap(Schema.decodeUnknownEffect(schema)))
 
-    return yield* useDirectory(dataDirectory)
-  }).pipe(Effect.scoped)
+const bootstrapInto = (dataDirectory: string) =>
+  bootstrapMasterInvite(dataDirectory).pipe(Effect.provide(databaseLayer(dataDirectory)))
 
-const bootInto = (dataDirectory: string) =>
-  bootstrapAdminInvite.pipe(Effect.provide(databaseLayer(dataDirectory)))
-
-const seedDevices = (dataDirectory: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient
-    const adminTokenHash = yield* hashSecret(ADMIN_TOKEN)
-    const podTokenHash = yield* hashSecret(POD_TOKEN)
-
-    yield* sql`INSERT INTO devices ${sql.insert([
-      { name: 'laptop', kind: 'admin', tokenHash: adminTokenHash, recipe: null, invitedBy: null },
-      {
-        name: 'box',
-        kind: 'pod',
-        tokenHash: podTokenHash,
-        recipe: 'personal',
-        invitedBy: 'laptop',
-      },
-    ])}`
-  }).pipe(Effect.provide(databaseLayer(dataDirectory)))
-
-const commitToConfigSource = (sourceDirectory: string, fileName: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-
-    yield* fileSystem.writeFileString(path.join(sourceDirectory, fileName), fileName)
-    yield* runGit(['-C', sourceDirectory, 'add', fileName])
-    yield* runGit([
-      '-C',
-      sourceDirectory,
-      '-c',
-      'user.name=pie',
-      '-c',
-      'user.email=pie@example.invalid',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '--quiet',
-      '--message',
-      fileName,
-    ])
-  })
-
-const startSeededPie = Effect.fn('startSeededPie')(function* (temporaryDirectory: string) {
-  const path = yield* Path.Path
-  const dataDirectory = path.join(temporaryDirectory, 'data')
-  const sourceDirectory = path.join(temporaryDirectory, 'source')
-
-  yield* runGit(['init', '--quiet', sourceDirectory])
-  yield* commitToConfigSource(sourceDirectory, 'initial')
-  yield* seedDevices(dataDirectory)
-
-  const { handler } = yield* Effect.acquireRelease(
-    Effect.sync(() =>
-      HttpRouter.toWebHandler(
-        apiLayer(dataDirectory, sourceDirectory).pipe(
-          Layer.provide(BunHttpServer.layerHttpServices),
-        ),
-        { disableLogger: true },
-      ),
-    ),
-    ({ dispose }) => Effect.promise(dispose),
-  )
-  const requestPie = (requestPath: string, headers: Record<string, string>) =>
-    Effect.promise(() => handler(new Request(`http://pie.test${requestPath}`, { headers })))
-
-  return { requestPie, dataDirectory, sourceDirectory }
-})
+const secretOf = (invite: string) =>
+  Schema.decodeEffect(Invite)(invite).pipe(Effect.map((payload) => payload.secret))
 
 afterAll(() => bunServicesRuntime.dispose())
 
-describe('bootstrapAdminInvite', () => {
-  test('a fresh data dir gets one admin invite, and a restart gets none', () =>
+describe('pie bootstrap', () => {
+  test('pie serve records its URL, and bootstrap puts it in a master invite that joins once', () =>
     bunServicesRuntime.runPromise(
-      inFreshDirectory((dataDirectory) =>
+      inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const firstBoot = yield* bootInto(dataDirectory)
-          const secondBoot = yield* bootInto(dataDirectory)
+          const { requestPie, dataDirectory } = yield* startPie(temporaryDirectory)
 
-          expect(Option.isSome(firstBoot)).toBe(true)
-          expect(secondBoot).toEqual(Option.none())
+          yield* requestPie('/whoami', {})
+
+          const masterInvite = yield* bootstrapInto(dataDirectory)
+          const invitePayload = yield* Schema.decodeEffect(Invite)(masterInvite.invite)
+          const joined = yield* requestPie(
+            '/join',
+            jsonRequest('POST', {}, { secret: invitePayload.secret }),
+          ).pipe(Effect.flatMap(decodeResponse(Joined)))
+          const secondBootstrap = yield* Effect.flip(bootstrapInto(dataDirectory))
+
+          expect(invitePayload.serverUrl).toBe(SERVER_URL)
+          expect([joined.device.name, joined.device.kind]).toEqual(['master', 'admin'])
+          expect(secondBootstrap).toBeInstanceOf(AlreadyBootstrapped)
         }),
       ),
     ))
 
-  test('a data dir with a device gets no invite', () =>
+  test('bootstrap before pie serve ever ran has no URL to hand out', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((dataDirectory) =>
         Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient
-          const tokenHash = yield* hashSecret('some-token')
+          const error = yield* Effect.flip(bootstrapInto(dataDirectory))
 
-          yield* sql`INSERT INTO devices ${sql.insert({ name: 'laptop', kind: 'admin', tokenHash })}`
-
-          expect(yield* bootstrapAdminInvite).toEqual(Option.none())
-        }).pipe(Effect.provide(databaseLayer(dataDirectory))),
+          expect(error).toBeInstanceOf(ServerUrlMissing)
+        }),
       ),
     ))
 
-  test('an expired, unused bootstrap invite gets replaced on restart', () =>
+  test('a second bootstrap replaces the first unused master invite', () =>
     bunServicesRuntime.runPromise(
-      inFreshDirectory((dataDirectory) =>
+      inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient
+          const { requestPie, dataDirectory } = yield* startPie(temporaryDirectory)
 
-          yield* sql`INSERT INTO invites ${sql.insert({ hash: 'expired', name: 'admin', kind: 'admin', expiresAt: 0 })}`
+          yield* requestPie('/whoami', {})
 
-          expect(Option.isSome(yield* bootstrapAdminInvite)).toBe(true)
-        }).pipe(Effect.provide(databaseLayer(dataDirectory))),
+          const firstSecret = yield* bootstrapInto(dataDirectory).pipe(
+            Effect.flatMap((created) => secretOf(created.invite)),
+          )
+          const secondSecret = yield* bootstrapInto(dataDirectory).pipe(
+            Effect.flatMap((created) => secretOf(created.invite)),
+          )
+          const firstJoin = yield* requestPie(
+            '/join',
+            jsonRequest('POST', {}, { secret: firstSecret }),
+          )
+          const secondJoin = yield* requestPie(
+            '/join',
+            jsonRequest('POST', {}, { secret: secondSecret }),
+          )
+
+          expect([firstJoin.status, secondJoin.status]).toEqual([404, 200])
+        }),
       ),
     ))
 })
@@ -162,16 +128,16 @@ describe('pie serve auth', () => {
     {
       description: 'a pod token on an admin route',
       path: '/pods',
-      headers: { authorization: `Bearer ${POD_TOKEN}` },
+      headers: POD_HEADERS,
       status: 403,
       errorTag: 'NotAnAdmin',
     },
   ])('$description gets $status', ({ path, headers, status, errorTag }) =>
     bunServicesRuntime.runPromise(
-      inFreshDirectory((dataDirectory) =>
+      inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const { requestPie } = yield* startSeededPie(dataDirectory)
-          const response = yield* requestPie(path, headers)
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const response = yield* requestPie(path, { headers })
           const body = yield* Effect.promise(() => response.json())
 
           expect(response.status).toBe(status)
@@ -183,19 +149,13 @@ describe('pie serve auth', () => {
 
   test('a pod token reaches /whoami, and an admin sees it as last seen', () =>
     bunServicesRuntime.runPromise(
-      inFreshDirectory((dataDirectory) =>
+      inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const { requestPie } = yield* startSeededPie(dataDirectory)
-          const whoamiResponse = yield* requestPie('/whoami', {
-            authorization: `Bearer ${POD_TOKEN}`,
-          })
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const whoamiResponse = yield* requestPie('/whoami', { headers: POD_HEADERS })
           const whoami = yield* Effect.promise(() => whoamiResponse.json())
-          const podsResponse = yield* requestPie('/pods', {
-            authorization: `Bearer ${ADMIN_TOKEN}`,
-          })
-          const pods = yield* Effect.promise(() => podsResponse.json()).pipe(
-            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Device))),
-          )
+          const podsResponse = yield* requestPie('/pods', { headers: ADMIN_HEADERS })
+          const pods = yield* decodeResponse(Schema.Array(Device))(podsResponse)
 
           expect(whoamiResponse.status).toBe(200)
           expect(whoami).toEqual({
@@ -215,8 +175,151 @@ describe('pie serve auth', () => {
     ))
 })
 
+describe('pie invites and join', () => {
+  test('an admin invites a pod with a recipe, the pod joins once, and pods lists it', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const created = yield* requestPie(
+            '/invites',
+            jsonRequest('POST', ADMIN_HEADERS, {
+              deviceName: 'sprite',
+              recipeName: 'personal',
+              kind: 'pod',
+            }),
+          ).pipe(Effect.flatMap(decodeResponse(CreatedInvite)))
+          const secret = yield* secretOf(created.invite)
+          const joined = yield* requestPie('/join', jsonRequest('POST', {}, { secret })).pipe(
+            Effect.flatMap(decodeResponse(Joined)),
+          )
+          const reused = yield* requestPie('/join', jsonRequest('POST', {}, { secret }))
+          const reusedBody = yield* Effect.promise(() => reused.json())
+          const whoami = yield* requestPie('/whoami', {
+            headers: { authorization: `Bearer ${joined.token}` },
+          }).pipe(Effect.flatMap(decodeResponse(Device)))
+          const pods = yield* requestPie('/pods', { headers: ADMIN_HEADERS }).pipe(
+            Effect.flatMap(decodeResponse(Schema.Array(Device))),
+          )
+
+          expect(created.deviceName).toBe('sprite')
+          expect(whoami.name).toBe('sprite')
+          expect([joined.device.recipe, joined.device.invitedBy]).toEqual([
+            Option.some('personal'),
+            Option.some('laptop'),
+          ])
+          expect(reused.status).toBe(410)
+          expect(reusedBody).toMatchObject({ _tag: 'InviteAlreadyUsed', deviceName: 'sprite' })
+          expect(pods.map((pod) => pod.name)).toEqual(['box', 'sprite'])
+        }),
+      ),
+    ))
+
+  test('an invite without a name gets a generated one', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const created = yield* requestPie(
+            '/invites',
+            jsonRequest('POST', ADMIN_HEADERS, { deviceName: null, recipeName: null, kind: 'pod' }),
+          ).pipe(Effect.flatMap(decodeResponse(CreatedInvite)))
+
+          expect(created.deviceName).toMatch(/^pod-[0-9a-f]{6}$/u)
+        }),
+      ),
+    ))
+
+  test.each([
+    {
+      description: 'a name a device already has',
+      headers: ADMIN_HEADERS,
+      invite: { deviceName: 'box', recipeName: null, kind: 'pod' },
+      status: 409,
+      errorTag: 'DeviceNameTaken',
+    },
+    {
+      description: 'a recipe missing from the config repo',
+      headers: ADMIN_HEADERS,
+      invite: { deviceName: 'sprite', recipeName: 'work', kind: 'pod' },
+      status: 422,
+      errorTag: 'RecipeNotFound',
+    },
+    {
+      description: 'a pod token',
+      headers: POD_HEADERS,
+      invite: { deviceName: 'sprite', recipeName: null, kind: 'pod' },
+      status: 403,
+      errorTag: 'NotAnAdmin',
+    },
+  ])('an invite with $description gets $status', ({ headers, invite, status, errorTag }) =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const response = yield* requestPie('/invites', jsonRequest('POST', headers, invite))
+          const body = yield* Effect.promise(() => response.json())
+
+          expect(response.status).toBe(status)
+          expect(body).toMatchObject({ _tag: errorTag })
+        }),
+      ),
+    ),
+  )
+
+  test('a name a pending invite already holds is taken', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie } = yield* startSeededPie(temporaryDirectory)
+          const invite = { deviceName: 'sprite', recipeName: null, kind: 'pod' }
+          const first = yield* requestPie('/invites', jsonRequest('POST', ADMIN_HEADERS, invite))
+          const second = yield* requestPie('/invites', jsonRequest('POST', ADMIN_HEADERS, invite))
+
+          expect([first.status, second.status]).toEqual([200, 409])
+        }),
+      ),
+    ))
+
+  test.each([
+    {
+      description: 'an expired invite',
+      secret: 'stored-secret',
+      status: 410,
+      errorTag: 'InviteExpired',
+    },
+    {
+      description: 'an unknown invite',
+      secret: 'another-secret',
+      status: 404,
+      errorTag: 'InviteUnknown',
+    },
+  ])('joining with $description gets $status', ({ secret, status, errorTag }) =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie, dataDirectory } = yield* startSeededPie(temporaryDirectory)
+          const storedHash = yield* hashSecret('stored-secret')
+
+          yield* Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient
+
+            yield* sql`INSERT INTO invites ${sql.insert({ hash: storedHash, name: 'sprite', kind: 'pod', expiresAt: 0 })}`
+          }).pipe(Effect.provide(databaseLayer(dataDirectory)))
+
+          const response = yield* requestPie('/join', jsonRequest('POST', {}, { secret }))
+          const body = yield* Effect.promise(() => response.json())
+
+          expect(response.status).toBe(status)
+          expect(body).toMatchObject({ _tag: errorTag })
+        }),
+      ),
+    ),
+  )
+})
+
 describe('pie serve config pull', () => {
-  test('a request pulls the latest config, and says so when the pull fails', () =>
+  test('only config routes pull, and they say so when the pull fails', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
@@ -224,20 +327,26 @@ describe('pie serve config pull', () => {
           const path = yield* Path.Path
           const { requestPie, dataDirectory, sourceDirectory } =
             yield* startSeededPie(temporaryDirectory)
-          const podHeaders = { authorization: `Bearer ${POD_TOKEN}` }
+          const pulledFilePath = path.join(dataDirectory, 'config', 'pulled')
+          const inviteRequest = (deviceName: string) =>
+            requestPie(
+              '/invites',
+              jsonRequest('POST', ADMIN_HEADERS, { deviceName, recipeName: null, kind: 'pod' }),
+            )
 
+          yield* requestPie('/whoami', { headers: POD_HEADERS })
           yield* commitToConfigSource(sourceDirectory, 'pulled')
+          yield* requestPie('/whoami', { headers: POD_HEADERS })
 
-          const freshResponse = yield* requestPie('/whoami', podHeaders)
-          const pulledFileExists = yield* fileSystem.exists(
-            path.join(dataDirectory, 'config', 'pulled'),
-          )
+          const pulledAfterWhoami = yield* fileSystem.exists(pulledFilePath)
+          const freshResponse = yield* inviteRequest('fresh')
+          const pulledAfterInvite = yield* fileSystem.exists(pulledFilePath)
 
           yield* fileSystem.remove(sourceDirectory, { recursive: true })
 
-          const staleResponse = yield* requestPie('/whoami', podHeaders)
+          const staleResponse = yield* inviteRequest('stale')
 
-          expect(pulledFileExists).toBe(true)
+          expect([pulledAfterWhoami, pulledAfterInvite]).toEqual([false, true])
           expect(freshResponse.status).toBe(200)
           expect(freshResponse.headers.get(CONFIG_STALE_HEADER)).toBeNull()
           expect(staleResponse.status).toBe(200)

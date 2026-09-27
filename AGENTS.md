@@ -291,11 +291,21 @@ Do not guess about Effect, oxc or Bun. Do not trust a plausible claim in a revie
 
 ## The config clone
 
-The server pulls the config repo before every authenticated request, one pull at a time. Over
-ssh to GitHub a pull measured 1.7s and a fresh clone 2.0s (three pulls, one clone). Every git call
+The server pulls the config repo before every request to a route that reads the config, one pull
+at a time, and never before the rest: over ssh to GitHub a pull measured 1.7s and a fresh clone
+2.0s (three pulls, one clone), a cost a route that never reads the config gains nothing from. Every git call
 times out at 10s, about five times that: long enough for a slow network, short enough that an
 unreachable GitHub or an ssh prompt nobody answers turns into serving the last pull instead of a
 queue of hung requests. Git runs with terminal prompts off for the same reason.
+
+## Invites
+
+An invite is base64url JSON carrying pie's own URL and a secret, so the one line pasted on a box
+is all it needs to find pie; the server owns that URL, never the device that asked for the invite.
+The server trusts only the secret: name, kind and recipe live in its database, looked up by the
+secret's hash, so editing them in the payload changes nothing and the payload needs no signature.
+Nothing secret goes to the logs; the first admin invite comes from running `pie bootstrap` on
+pie's own box, which reads the URL `pie serve` recorded in the database.
 
 ## Commits
 
