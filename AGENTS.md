@@ -307,6 +307,26 @@ secret's hash, so editing them in the payload changes nothing and the payload ne
 Nothing secret goes to the logs; the first admin invite comes from running `pie bootstrap` on
 pie's own box, which reads the URL `pie serve` recorded in the database.
 
+## The setup script
+
+It arrives through `curl | sh`, so the shell reads it from the same stdin every step inherits. The
+script is only functions and one call at the end: the shell parses all of it before any step runs,
+and a step that reads stdin can't swallow the rest.
+
+A failure names its step through an `EXIT` trap reading the current step's name, never
+`step || report`: POSIX sh turns `set -e` off inside anything on the left of `||`, so the step
+would keep going after its first failure.
+
+Tailscale is skipped when pie answers any HTTP at all, a 404 included, which covers boxes already
+on the tailnet and containers on a host that is (measured: a docker container on the laptop reaches
+tailnet IPs through it). The probe answered in about 1ms from beside pie; its 5s timeout is a guess
+at a slow real hop, not a measurement. In a container without systemd the Tailscale package
+installs but its daemon never starts, so `tailscale up` fails, and loudly (measured).
+
+`PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
+`file://`, which curl reads. Without an invite the script only installs pie, which is how an admin
+machine gets it before `pie join`.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that
