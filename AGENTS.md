@@ -335,6 +335,19 @@ base64 with its executable bit, because tasks must run and a skill can ship scri
 turns the environment into mise config and the MCP definitions into Claude's shape, so the box
 applies what it gets without knowing the config repo's formats.
 
+On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
+already exists without that fails `pod up` before anything changes, and so does a user MCP server
+of the same name that pie didn't add. The manifest records the union of old and new before any
+write, so a run that dies halfway never leaves pie's own files looking like someone else's.
+
+Pie never writes `~/.claude.json`: it is Claude's live state, rewritten by every running session.
+Pie only reads it for server names and runs `claude mcp add-json` and `claude mcp remove` at user
+scope, so Claude writes its own file. A second `up` of the same recipe runs no `claude` at all.
+
+Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: under setup.sh the shell
+has no new `PATH` yet, and the tests plant a fake mise at that path. Every command it runs gets
+stdin closed, because under `curl | sh` stdin is the script itself.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that

@@ -17,6 +17,7 @@ import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest'
 import * as HttpApiClient from 'effect/unstable/httpapi/HttpApiClient'
 import packageJson from '../package.json' with { type: 'json' }
 import { CLIENT_VERSION_HEADER, type Device, Invite, PieApi } from './Api.ts'
+import { applyPodConfig, configHome } from './Pod.ts'
 import { bootstrapMasterInvite, databaseLayer, serveLayer } from './Server.ts'
 
 const DEFAULT_HOST = '127.0.0.1'
@@ -36,17 +37,6 @@ const PRIVATE_FILE_MODE = 0o600
 const COMMIT_ABBREVIATION_LENGTH = 7
 
 const COLUMN_GAP = '  '
-
-export class CommandNotBuiltYet extends Schema.TaggedError<CommandNotBuiltYet>()(
-  'CommandNotBuiltYet',
-  {
-    commandPath: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `pie ${this.commandPath} isn't built yet.`
-  }
-}
 
 export class NotJoined extends Schema.TaggedError<NotJoined>()('NotJoined', {
   configDirectory: Schema.String,
@@ -70,9 +60,6 @@ const AGE_UNITS = [
   { suffix: 'h', toUnits: Duration.toHours },
   { suffix: 'm', toUnits: Duration.toMinutes },
 ]
-
-const failAsNotBuiltYet = (commandPath: string) => () =>
-  Effect.fail(new CommandNotBuiltYet({ commandPath }))
 
 const describeAge = (age: Duration.Duration) =>
   Arr.findFirst(AGE_UNITS, (unit) => unit.toUnits(age) >= 1).pipe(
@@ -127,9 +114,8 @@ const defaultDataDirectory = Config.String('XDG_DATA_HOME').pipe(
   Config.orElse(() => Config.String('HOME').pipe(Config.map((home) => `${home}/.local/share/pie`))),
 )
 
-const pieConfigDirectory = Config.String('XDG_CONFIG_HOME').pipe(
-  Config.map((configHome) => `${configHome}/pie`),
-  Config.orElse(() => Config.String('HOME').pipe(Config.map((home) => `${home}/.config/pie`))),
+const pieConfigDirectory = configHome.pipe(
+  Config.map((configDirectory) => `${configDirectory}/pie`),
 )
 
 const credentialPaths = Effect.gen(function* () {
@@ -304,7 +290,25 @@ const pods = Command.make('pods').pipe(
 )
 
 const pod = Command.make('pod').pipe(
-  Command.withSubcommands([Command.make('up', {}, failAsNotBuiltYet('pod up'))]),
+  Command.withSubcommands([
+    Command.make(
+      'up',
+      {},
+      Effect.fn(
+        function* () {
+          const client = yield* makeJoinedClient
+          const podConfig = yield* client.pod.config()
+
+          yield* applyPodConfig(podConfig)
+          yield* client.pod.up({ payload: { commit: podConfig.commit } })
+          yield* Console.log(
+            `Applied config commit ${podConfig.commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
+          )
+        },
+        Effect.catchTag('PodHasNoRecipe', (error) => Console.error(error.message)),
+      ),
+    ),
+  ]),
 )
 
 export const pie = Command.make('pie').pipe(
