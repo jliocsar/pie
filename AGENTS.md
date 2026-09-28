@@ -321,7 +321,10 @@ Tailscale is skipped when pie answers any HTTP at all, a 404 included, which cov
 on the tailnet and containers on a host that is (measured: a docker container on the laptop reaches
 tailnet IPs through it). The probe answered in about 1ms from beside pie; its 5s timeout is a guess
 at a slow real hop, not a measurement. In a container without systemd the Tailscale package
-installs but its daemon never starts, so `tailscale up` fails, and loudly (measured).
+installs but its daemon never starts, so `tailscale up` fails, and loudly (measured). A Sprite has
+no systemd either, but it has `sprite-env`, whose services start at every boot: setup.sh runs
+`tailscaled` as one through sudo, with the systemd unit's state and socket paths. A Sprite's
+kernel has tun, so Tailscale needs no userspace mode there (measured).
 
 `PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
 `file://`, which curl reads. Without an invite the script only installs pie, which is how an admin

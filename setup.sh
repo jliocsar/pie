@@ -37,9 +37,20 @@ pie_is_reachable() {
   curl -s -o /dev/null --max-time "$pie_reachability_timeout_seconds" "$1"
 }
 
+start_tailscaled_as_sprite_service() {
+  if ! sprite-env services get tailscaled >/dev/null 2>&1; then
+    sprite-env services create tailscaled --cmd /usr/bin/sudo \
+      --args /usr/sbin/tailscaled,--state=/var/lib/tailscale/tailscaled.state,--socket=/run/tailscale/tailscaled.sock \
+      --duration 3s >/dev/null
+  fi
+}
+
 join_tailnet() {
   if ! command -v tailscale >/dev/null 2>&1; then
     curl -fsSL https://tailscale.com/install.sh | sh
+  fi
+  if command -v sprite-env >/dev/null 2>&1; then
+    start_tailscaled_as_sprite_service
   fi
   run_as_root tailscale up --advertise-tags=tag:agent-pod
   if ! pie_is_reachable "$1"; then
