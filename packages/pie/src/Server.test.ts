@@ -7,12 +7,21 @@ import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
 import * as SqlClient from 'effect/unstable/sql/SqlClient'
-import { CONFIG_STALE_HEADER, CreatedInvite, Device, Invite, Joined } from './Api.ts'
+import {
+  CONFIG_STALE_HEADER,
+  CreatedInvite,
+  Device,
+  Invite,
+  Joined,
+  PodConfig,
+  type PodFile,
+} from './Api.ts'
 import {
   AlreadyBootstrapped,
   bootstrapMasterInvite,
   databaseLayer,
   hashSecret,
+  runGit,
   ServerUrlMissing,
 } from './Server.ts'
 import {
@@ -21,6 +30,7 @@ import {
   inFreshDirectory,
   jsonRequest,
   POD_TOKEN,
+  SEED_CONFIG_FILES,
   SERVER_URL,
   startPie,
   startSeededPie,
@@ -36,6 +46,12 @@ const decodeResponse =
   <Decoded, Encoded>(schema: Schema.Codec<Decoded, Encoded>) =>
   (response: Response) =>
     Effect.promise(() => response.json()).pipe(Effect.flatMap(Schema.decodeUnknownEffect(schema)))
+
+const describePodFile = (podFile: PodFile) => ({
+  path: podFile.path,
+  text: new TextDecoder().decode(podFile.content),
+  executable: podFile.executable,
+})
 
 const bootstrapInto = (dataDirectory: string) =>
   bootstrapMasterInvite(dataDirectory).pipe(Effect.provide(databaseLayer(dataDirectory)))
@@ -131,6 +147,20 @@ describe('pie serve auth', () => {
       headers: POD_HEADERS,
       status: 403,
       errorTag: 'NotAnAdmin',
+    },
+    {
+      description: 'no token on pod config',
+      path: '/pod/config',
+      headers: {},
+      status: 401,
+      errorTag: 'TokenMissing',
+    },
+    {
+      description: 'a device with no recipe asking for pod config',
+      path: '/pod/config',
+      headers: ADMIN_HEADERS,
+      status: 409,
+      errorTag: 'PodHasNoRecipe',
     },
   ])('$description gets $status', ({ path, headers, status, errorTag }) =>
     bunServicesRuntime.runPromise(
@@ -335,7 +365,7 @@ describe('pie serve config pull', () => {
             )
 
           yield* requestPie('/whoami', { headers: POD_HEADERS })
-          yield* commitToConfigSource(sourceDirectory, 'pulled')
+          yield* commitToConfigSource(sourceDirectory, { pulled: 'pulled' }, [])
           yield* requestPie('/whoami', { headers: POD_HEADERS })
 
           const pulledAfterWhoami = yield* fileSystem.exists(pulledFilePath)
@@ -351,6 +381,83 @@ describe('pie serve config pull', () => {
           expect(freshResponse.headers.get(CONFIG_STALE_HEADER)).toBeNull()
           expect(staleResponse.status).toBe(200)
           expect(staleResponse.headers.get(CONFIG_STALE_HEADER)).toBe('true')
+        }),
+      ),
+    ))
+})
+
+describe('pie pod config', () => {
+  test('a pod gets its recipe at HEAD, reports the commit it applied, and pods lists it', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie, sourceDirectory } = yield* startSeededPie(temporaryDirectory)
+          const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
+          const podConfig = yield* requestPie('/pod/config', { headers: POD_HEADERS }).pipe(
+            Effect.flatMap(decodeResponse(PodConfig)),
+          )
+          const upResponse = yield* requestPie(
+            '/pod/up',
+            jsonRequest('POST', POD_HEADERS, { commit: podConfig.commit }),
+          )
+          const pods = yield* requestPie('/pods', { headers: ADMIN_HEADERS }).pipe(
+            Effect.flatMap(decodeResponse(Schema.Array(Device))),
+          )
+
+          expect(podConfig.commit).toBe(headCommit.trim())
+          expect(podConfig.miseConfig).toBe(
+            '[tools]\n"node" = "24.19.0"\n"github:dmtrKovalenko/fff" = "0.10.6"\n',
+          )
+          expect(podConfig.tasks.map(describePodFile)).toEqual([
+            { path: 'workspace', text: SEED_CONFIG_FILES['tasks/workspace'], executable: true },
+          ])
+          expect(podConfig.repositories).toEqual([
+            { repo: 'jliocsar/pie', dir: 'jliocsar/pie' },
+            { repo: 'jliocsar/nidus', dir: 'nidus' },
+          ])
+          expect(podConfig.claudeFiles.map(describePodFile)).toEqual([
+            {
+              path: 'agents/oracle.md',
+              text: SEED_CONFIG_FILES['agents/oracle.md'],
+              executable: false,
+            },
+            {
+              path: 'skills/handoff/SKILL.md',
+              text: SEED_CONFIG_FILES['skills/handoff/SKILL.md'],
+              executable: false,
+            },
+            {
+              path: 'skills/handoff/scripts/greet',
+              text: SEED_CONFIG_FILES['skills/handoff/scripts/greet'],
+              executable: true,
+            },
+          ])
+          expect(podConfig.mcpServers).toEqual({
+            fff: { type: 'stdio', command: 'fff-mcp', args: [] },
+            docs: { type: 'http', url: 'https://docs.example/mcp' },
+          })
+          expect(upResponse.status).toBe(204)
+          expect(pods.map((pod) => pod.lastUpCommit)).toEqual([Option.some(headCommit.trim())])
+        }),
+      ),
+    ))
+
+  test('a broken config at HEAD reaches the pod as the loader error', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { requestPie, sourceDirectory } = yield* startSeededPie(temporaryDirectory)
+
+          yield* commitToConfigSource(sourceDirectory, { 'recipes/personal.toml': 'label = ' }, [])
+
+          const response = yield* requestPie('/pod/config', { headers: POD_HEADERS })
+          const body = yield* Effect.promise(() => response.json())
+
+          expect(response.status).toBe(422)
+          expect(body).toMatchObject({
+            _tag: 'ConfigFileUnparseable',
+            filePath: 'recipes/personal.toml',
+          })
         }),
       ),
     ))

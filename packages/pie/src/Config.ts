@@ -7,6 +7,7 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
+import * as SchemaTransformation from 'effect/SchemaTransformation'
 
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 
@@ -26,9 +27,19 @@ export type Environment = typeof Environment.Type
 
 export const RepositoryName = Schema.String.check(Schema.isPattern(/^[\w.-]+\/[\w.-]+$/u))
 
+const RepositoryCheckout = Schema.Struct({ repo: RepositoryName, dir: Schema.String })
+
 export const Repository = Schema.Union([
-  RepositoryName,
-  Schema.Struct({ repo: RepositoryName, dir: Schema.String }),
+  RepositoryName.pipe(
+    Schema.decodeTo(
+      RepositoryCheckout,
+      SchemaTransformation.transform({
+        decode: (repo: string) => ({ repo, dir: repo }),
+        encode: (checkout) => checkout.repo,
+      }),
+    ),
+  ),
+  RepositoryCheckout,
 ])
 
 export type Repository = typeof Repository.Type
@@ -80,7 +91,7 @@ export const ReferenceKind = Schema.Literals(['environment', 'agent', 'skill', '
 
 export type ReferenceKind = typeof ReferenceKind.Type
 
-const configFilePathOf = {
+export const configFilePathOf = {
   environment: (environmentName: string) => `environments/${environmentName}.toml`,
   recipe: (recipeName: string) => `recipes/${recipeName}.toml`,
   mcp: (mcpName: string) => `mcp/${mcpName}.toml`,
@@ -95,6 +106,7 @@ export class ConfigFileUnparseable extends Schema.TaggedError<ConfigFileUnparsea
     filePath: Schema.String,
     parserMessage: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} doesn't parse: ${this.parserMessage}`
@@ -106,6 +118,7 @@ export class FrontmatterMissing extends Schema.TaggedError<FrontmatterMissing>()
   {
     filePath: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} has no frontmatter. Start it with a --- block holding at least name and description.`
@@ -118,6 +131,7 @@ export class ConfigFileInvalid extends Schema.TaggedError<ConfigFileInvalid>()(
     filePath: Schema.String,
     issueMessage: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} is invalid:\n${this.issueMessage}`
@@ -131,6 +145,7 @@ export class ConfigNameMismatch extends Schema.TaggedError<ConfigNameMismatch>()
     declaredName: Schema.String,
     expectedName: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} is named "${this.declaredName}", but its path names it "${this.expectedName}". Make them match.`
@@ -144,6 +159,7 @@ export class ConfigReferenceMissing extends Schema.TaggedError<ConfigReferenceMi
     referenceKind: ReferenceKind,
     referenceName: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} lists ${this.referenceKind} "${this.referenceName}", but ${configFilePathOf[this.referenceKind](this.referenceName)} doesn't exist.`
@@ -156,6 +172,7 @@ export class McpAuthNotSupportedYet extends Schema.TaggedError<McpAuthNotSupport
     filePath: Schema.String,
     mcpName: Schema.String,
   },
+  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} lists mcp "${this.mcpName}", which has auth, and pie can't inject MCP auth yet. Drop it from the recipe.`
@@ -192,7 +209,7 @@ const extractFrontmatter = (filePath: string, text: string) =>
     }),
   )
 
-const listDirectory = Effect.fn('listDirectory')(function* (
+export const listDirectory = Effect.fn('listDirectory')(function* (
   configDirectory: string,
   directoryName: string,
   entryType: FileSystem.File.Type,

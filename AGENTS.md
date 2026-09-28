@@ -327,6 +327,14 @@ installs but its daemon never starts, so `tailscale up` fails, and loudly (measu
 `file://`, which curl reads. Without an invite the script only installs pie, which is how an admin
 machine gets it before `pie join`.
 
+## Pod up
+
+A pod gets its whole recipe from one request, as JSON rather than the tar the plan names: the
+typed client decodes and validates it, so neither side carries tar code. Each file travels as
+base64 with its executable bit, because tasks must run and a skill can ship scripts. The server
+turns the environment into mise config and the MCP definitions into Claude's shape, so the box
+applies what it gets without knowing the config repo's formats.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that

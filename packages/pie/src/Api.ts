@@ -6,6 +6,14 @@ import * as HttpApiEndpoint from 'effect/unstable/httpapi/HttpApiEndpoint'
 import * as HttpApiGroup from 'effect/unstable/httpapi/HttpApiGroup'
 import * as HttpApiMiddleware from 'effect/unstable/httpapi/HttpApiMiddleware'
 import * as HttpApiSecurity from 'effect/unstable/httpapi/HttpApiSecurity'
+import {
+  ConfigFileInvalid,
+  ConfigFileUnparseable,
+  ConfigNameMismatch,
+  ConfigReferenceMissing,
+  FrontmatterMissing,
+  McpAuthNotSupportedYet,
+} from './Config.ts'
 
 export const CLIENT_VERSION_HEADER = 'pie-client-version'
 
@@ -130,6 +138,16 @@ export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()(
   }
 }
 
+export class PodHasNoRecipe extends Schema.TaggedError<PodHasNoRecipe>()(
+  'PodHasNoRecipe',
+  { deviceName: Schema.String },
+  { httpApiStatus: 409 },
+) {
+  override get message(): string {
+    return `${this.deviceName} has no recipe yet, so there's nothing to apply.`
+  }
+}
+
 export class CurrentDevice extends Context.Service<CurrentDevice, Device>()('pie/CurrentDevice') {}
 
 export class Authentication extends HttpApiMiddleware.Service<
@@ -162,6 +180,40 @@ export const CreatedInvite = Schema.Struct({
   expiresAt: Schema.DateTimeUtcFromMillis,
 })
 
+export const PodFile = Schema.Struct({
+  path: Schema.String,
+  content: Schema.Uint8ArrayFromBase64,
+  executable: Schema.Boolean,
+})
+
+export type PodFile = typeof PodFile.Type
+
+export const ClaudeMcpServer = Schema.Union([
+  Schema.Struct({ type: Schema.Literal('http'), url: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal('stdio'),
+    command: Schema.String,
+    args: Schema.Array(Schema.String),
+  }),
+])
+
+export type ClaudeMcpServer = typeof ClaudeMcpServer.Type
+
+export const PodRepository = Schema.Struct({ repo: Schema.String, dir: Schema.String })
+
+export type PodRepository = typeof PodRepository.Type
+
+export const PodConfig = Schema.Struct({
+  commit: Schema.String,
+  miseConfig: Schema.String,
+  tasks: Schema.Array(PodFile),
+  repositories: Schema.Array(PodRepository),
+  claudeFiles: Schema.Array(PodFile),
+  mcpServers: Schema.Record(Schema.String, ClaudeMcpServer),
+})
+
+export type PodConfig = typeof PodConfig.Type
+
 export class JoinGroup extends HttpApiGroup.make('join').add(
   HttpApiEndpoint.post('join', '/join', {
     payload: Schema.Struct({ secret: Schema.String }),
@@ -191,8 +243,32 @@ export class InvitesGroup extends HttpApiGroup.make('invites')
   .middleware(AdminOnly)
   .middleware(Authentication) {}
 
+export class PodGroup extends HttpApiGroup.make('pod')
+  .add(
+    HttpApiEndpoint.get('config', '/pod/config', {
+      success: PodConfig,
+      error: [
+        PodHasNoRecipe,
+        RecipeNotFound,
+        ConfigFileUnparseable,
+        FrontmatterMissing,
+        ConfigFileInvalid,
+        ConfigNameMismatch,
+        ConfigReferenceMissing,
+        McpAuthNotSupportedYet,
+      ],
+    }).middleware(ConfigPull),
+  )
+  .add(
+    HttpApiEndpoint.post('up', '/pod/up', {
+      payload: Schema.Struct({ commit: Schema.String }),
+    }),
+  )
+  .middleware(Authentication) {}
+
 export class PieApi extends HttpApi.make('pie')
   .add(JoinGroup)
   .add(DevicesGroup)
   .add(PodsGroup)
-  .add(InvitesGroup) {}
+  .add(InvitesGroup)
+  .add(PodGroup) {}

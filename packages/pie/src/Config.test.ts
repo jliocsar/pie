@@ -87,7 +87,7 @@ describe('loadConfig', () => {
           'github:dmtrKovalenko/fff': '0.10.6',
         })
         expect(config.recipes['personal']?.repositories).toEqual([
-          'jliocsar/pie',
+          { repo: 'jliocsar/pie', dir: 'jliocsar/pie' },
           { repo: 'jliocsar/nidus', dir: 'nidus' },
         ])
         expect(config.mcpServers['fff']).toEqual({ command: 'fff-mcp', args: [] })

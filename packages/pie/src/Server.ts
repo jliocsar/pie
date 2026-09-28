@@ -1,6 +1,7 @@
 import * as BunHttpServer from '@effect/platform-bun/BunHttpServer'
 import * as SqliteClient from '@effect/sql-sqlite-bun/SqliteClient'
 import * as SqliteMigrator from '@effect/sql-sqlite-bun/SqliteMigrator'
+import * as Arr from 'effect/Array'
 import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
@@ -13,6 +14,7 @@ import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
+import * as Record from 'effect/Record'
 import type { PlatformError } from 'effect/PlatformError'
 import * as Redacted from 'effect/Redacted'
 import * as Schema from 'effect/Schema'
@@ -32,6 +34,7 @@ import * as SqlSchema from 'effect/unstable/sql/SqlSchema'
 import {
   AdminOnly,
   Authentication,
+  type ClaudeMcpServer,
   CLIENT_VERSION_HEADER,
   CONFIG_STALE_HEADER,
   ConfigPull,
@@ -45,10 +48,21 @@ import {
   InviteUnknown,
   NotAnAdmin,
   PieApi,
+  PodHasNoRecipe,
   RecipeNotFound,
   TokenMissing,
   TokenUnknown,
 } from './Api.ts'
+import {
+  configFilePathOf,
+  ConfigReferenceMissing,
+  type Environment,
+  HttpMcpServer,
+  listDirectory,
+  loadConfig,
+  type McpServer,
+  type ReferenceKind,
+} from './Config.ts'
 
 const SECRET_BYTE_LENGTH = 32
 
@@ -65,6 +79,10 @@ const INVITE_LIFETIME = Duration.hours(1)
 const CONFIG_CHECKOUT_DIRECTORY_NAME = 'config'
 
 const GIT_TIMEOUT = Duration.seconds(10)
+
+const EXECUTABLE_MODE_BITS = 0o111
+
+const MISE_TOOLS_TABLE = '[tools]'
 
 export class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()('GitCommandFailed', {
   gitArguments: Schema.Array(Schema.String),
@@ -543,6 +561,159 @@ const invitesHandlers = (serverUrl: string) =>
     }),
   )
 
+const miseConfigOf = (environment: Environment) =>
+  [
+    MISE_TOOLS_TABLE,
+    ...Arr.map(
+      Record.toEntries(environment.tools),
+      ([toolName, toolVersion]) => `${JSON.stringify(toolName)} = ${JSON.stringify(toolVersion)}`,
+    ),
+    '',
+  ].join('\n')
+
+const isHttpMcpServer = Schema.is(HttpMcpServer)
+
+const claudeMcpServerOf = (mcpServer: McpServer): ClaudeMcpServer =>
+  isHttpMcpServer(mcpServer)
+    ? { type: 'http', url: mcpServer.url }
+    : { type: 'stdio', command: mcpServer.command, args: mcpServer.args }
+
+const lookUpRecipeReference = <Value>(
+  recipeName: string,
+  referenceKind: ReferenceKind,
+  entries: Record.ReadonlyRecord<string, Value>,
+  referenceName: string,
+): Effect.Effect<Value, ConfigReferenceMissing> =>
+  Option.match(Record.get(entries, referenceName), {
+    onNone: () =>
+      Effect.fail(
+        new ConfigReferenceMissing({
+          filePath: configFilePathOf.recipe(recipeName),
+          referenceKind,
+          referenceName,
+        }),
+      ),
+    onSome: Effect.succeed,
+  })
+
+const readPodFile = Effect.fn('readPodFile')(function* (
+  configDirectory: string,
+  filePath: string,
+  podPath: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const absoluteFilePath = path.join(configDirectory, filePath)
+  const content = yield* fileSystem.readFile(absoluteFilePath)
+  const fileInfo = yield* fileSystem.stat(absoluteFilePath)
+
+  return { path: podPath, content, executable: (fileInfo.mode & EXECUTABLE_MODE_BITS) !== 0 }
+})
+
+const readRepositoryFile = (configDirectory: string, filePath: string) =>
+  readPodFile(configDirectory, filePath, filePath)
+
+const readSkillFiles = Effect.fn('readSkillFiles')(function* (
+  configDirectory: string,
+  skillName: string,
+) {
+  const path = yield* Path.Path
+  const skillDirectory = path.dirname(configFilePathOf.skill(skillName))
+  const skillFilePaths = yield* listDirectory(configDirectory, skillDirectory, 'File', {
+    recursive: true,
+  })
+
+  return yield* Effect.forEach(skillFilePaths, (skillFilePath) =>
+    readRepositoryFile(configDirectory, path.join(skillDirectory, skillFilePath)),
+  )
+})
+
+const podConfigOf = Effect.fn('podConfigOf')(function* (
+  configDirectory: string,
+  recipeName: string,
+  commit: string,
+) {
+  const config = yield* loadConfig(configDirectory)
+  const recipe = yield* Option.match(Record.get(config.recipes, recipeName), {
+    onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
+    onSome: Effect.succeed,
+  })
+  const environment = yield* lookUpRecipeReference(
+    recipeName,
+    'environment',
+    config.environments,
+    recipe.environment,
+  )
+  const mcpServerEntries = yield* Effect.forEach(recipe.mcp, (mcpName) =>
+    lookUpRecipeReference(recipeName, 'mcp', config.mcpServers, mcpName).pipe(
+      Effect.map((mcpServer) => [mcpName, claudeMcpServerOf(mcpServer)] as const),
+    ),
+  )
+  const agentFiles = yield* Effect.forEach(recipe.agents, (agentName) =>
+    readRepositoryFile(configDirectory, configFilePathOf.agent(agentName)),
+  )
+  const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
+    readSkillFiles(configDirectory, skillName),
+  )
+  const tasks = yield* Effect.forEach(environment.tasks, (taskName) =>
+    readPodFile(configDirectory, configFilePathOf.task(taskName), taskName),
+  )
+
+  return {
+    commit,
+    miseConfig: miseConfigOf(environment),
+    tasks,
+    repositories: recipe.repositories,
+    claudeFiles: [...agentFiles, ...Arr.flatten(skillFiles)],
+    mcpServers: Record.fromEntries(mcpServerEntries),
+  }
+})
+
+const podHandlers = HttpApiBuilder.group(
+  PieApi,
+  'pod',
+  Effect.fn(function* (handlers) {
+    const services = yield* Effect.context<
+      FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+    >()
+    const sql = yield* SqlClient.SqlClient
+    const configRepository = yield* ConfigRepository
+
+    return handlers
+      .handle('config', () =>
+        Effect.gen(function* () {
+          const device = yield* CurrentDevice
+          const recipeName = yield* Option.match(device.recipe, {
+            onNone: () => Effect.fail(new PodHasNoRecipe({ deviceName: device.name })),
+            onSome: Effect.succeed,
+          })
+          const commit = yield* runGit([
+            '-C',
+            configRepository.checkoutDirectory,
+            'rev-parse',
+            'HEAD',
+          ])
+
+          return yield* podConfigOf(configRepository.checkoutDirectory, recipeName, commit.trim())
+        }).pipe(
+          Effect.provide(services),
+          Effect.catchTags({
+            GitCommandFailed: Effect.die,
+            GitCommandTimedOut: Effect.die,
+            PlatformError: Effect.die,
+          }),
+        ),
+      )
+      .handle('up', ({ payload }) =>
+        Effect.gen(function* () {
+          const device = yield* CurrentDevice
+
+          yield* sql`UPDATE devices SET last_up_commit = ${payload.commit} WHERE name = ${device.name}`
+        }).pipe(Effect.catchTags({ SqlError: Effect.die })),
+      )
+  }),
+)
+
 export const runGit = Effect.fn('runGit')(
   function* (gitArguments: readonly string[]) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -643,6 +814,7 @@ export const apiLayer = (settings: {
     devicesHandlers,
     podsHandlers,
     invitesHandlers(serverUrl),
+    podHandlers,
   ).pipe(Layer.provide(databaseAndMiddleware))
 
   return HttpApiBuilder.layer(PieApi).pipe(Layer.provide(handlers))
