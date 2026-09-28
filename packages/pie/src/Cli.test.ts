@@ -32,6 +32,12 @@ const EXECUTABLE_FILE_MODE = 0o755
 
 const PERMISSION_BITS = 0o777
 
+const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
+
+const TASK_PATH_PATTERN = /^exec -- \/\S*\/(?<taskName>[^/\s]+)$/u
+
+const TOOL_AND_TASK_CALLS = ['install', 'exec -- <tasks>/workspace']
+
 const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
   'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/mcp"}',
@@ -93,13 +99,21 @@ const startPieWithAdmin = Effect.fn('startPieWithAdmin')(function* (temporaryDir
   return { ...startedPie, output, homeOf, runPieOn, joinPod }
 })
 
-const installFakeMise = Effect.fn('installFakeMise')(function* (home: string) {
+const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const misePath = path.join(home, '.local', 'bin', 'mise')
 
   yield* fileSystem.makeDirectory(path.dirname(misePath), { recursive: true })
   yield* fileSystem.writeFileString(misePath, FAKE_MISE_SCRIPT, { mode: EXECUTABLE_FILE_MODE })
+  yield* Effect.forEach(
+    CHECKED_OUT_REPOSITORY_DIRECTORIES,
+    (repositoryDirectory) =>
+      fileSystem.makeDirectory(path.join(home, 'workspace', repositoryDirectory), {
+        recursive: true,
+      }),
+    { discard: true },
+  )
 })
 
 const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
@@ -108,7 +122,10 @@ const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
   const miseCallsPath = path.join(home, 'mise-calls')
 
   if (yield* fileSystem.exists(miseCallsPath)) {
-    return Arr.filter((yield* fileSystem.readFileString(miseCallsPath)).split('\n'), Boolean)
+    return Arr.map(
+      Arr.filter((yield* fileSystem.readFileString(miseCallsPath)).split('\n'), Boolean),
+      (miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>'),
+    )
   }
 
   return []
@@ -214,10 +231,11 @@ describe('pie', () => {
 })
 
 describe('pie pod up', () => {
-  test('writes the recipe into ~/.claude, adds its MCPs through claude, and a second run changes nothing', () =>
+  test('installs the tools, runs the tasks, writes ~/.claude, adds MCPs through claude, and a rerun changes nothing', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
           const { output, homeOf, runPieOn, joinPod, sourceDirectory } =
             yield* startPieWithAdmin(temporaryDirectory)
@@ -227,7 +245,7 @@ describe('pie pod up', () => {
           const abbreviatedCommit = headCommit.slice(0, 7)
 
           yield* joinPod('sprite', ['--recipe', 'personal'])
-          yield* installFakeMise(home)
+          yield* prepareBox(home)
           yield* runPieOn('sprite', ['pod', 'up'])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
@@ -238,10 +256,14 @@ describe('pie pod up', () => {
 
           const secondMiseCalls = yield* readMiseCalls(home)
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
+          const miseConfig = yield* fileSystem.readFileString(
+            path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
+          )
+          const profile = yield* fileSystem.readFileString(path.join(home, '.profile'))
 
           yield* runPieOn('laptop', ['pods', 'ls'])
 
-          expect(firstMiseCalls).toEqual(MCP_ADD_CALLS)
+          expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
             'agents/oracle.md': { text: SEED_CONFIG_FILES['agents/oracle.md'], mode: 0o644 },
             'skills/handoff/SKILL.md': {
@@ -253,7 +275,11 @@ describe('pie pod up', () => {
               mode: EXECUTABLE_FILE_MODE,
             },
           })
-          expect(secondMiseCalls).toEqual(firstMiseCalls)
+          expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
+          expect(miseConfig).toBe(
+            '[tools]\n"node" = "24.19.0"\n"github:dmtrKovalenko/fff" = "0.10.6"\n',
+          )
+          expect(profile).toBe('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n')
           expect(secondSnapshot).toEqual(firstSnapshot)
           expect(output.stdout).toContain(`Applied config commit ${abbreviatedCommit}.`)
           expect(output.stdout.at(-1)).toContain(`sprite  personal  ${abbreviatedCommit}`)
@@ -274,7 +300,7 @@ describe('pie pod up', () => {
           const ownSkillPath = path.join(claudeDirectory, 'skills', 'mine', 'SKILL.md')
 
           yield* joinPod('sprite', ['--recipe', 'personal'])
-          yield* installFakeMise(home)
+          yield* prepareBox(home)
           yield* runPieOn('sprite', ['pod', 'up'])
           yield* writeClaudeState(home, ['fff', 'docs', 'mine'])
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
@@ -298,7 +324,9 @@ describe('pie pod up', () => {
           expect(Record.keys(remainingClaudeFiles)).toEqual(['skills/mine/SKILL.md'])
           expect(handoffStillThere).toBe(false)
           expect(miseCalls).toEqual([
+            ...TOOL_AND_TASK_CALLS,
             ...MCP_ADD_CALLS,
+            ...TOOL_AND_TASK_CALLS,
             'exec -- claude mcp remove --scope user docs',
           ])
         }),
@@ -318,7 +346,7 @@ describe('pie pod up', () => {
 
           yield* joinPod('skill-box', ['--recipe', 'personal'])
           yield* joinPod('mcp-box', ['--recipe', 'personal'])
-          yield* Effect.forEach([skillHome, mcpHome], installFakeMise, { discard: true })
+          yield* Effect.forEach([skillHome, mcpHome], prepareBox, { discard: true })
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
           yield* fileSystem.writeFileString(ownSkillPath, 'mine')
           yield* writeClaudeState(mcpHome, ['fff'])

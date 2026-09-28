@@ -348,6 +348,13 @@ Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: under se
 has no new `PATH` yet, and the tests plant a fake mise at that path. Every command it runs gets
 stdin closed, because under `curl | sh` stdin is the script itself.
 
+The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and
+every later command goes through `mise exec`. A new shell finds the tools through mise's shims
+directory, which `pod up` adds to `~/.profile` the way setup.sh adds pie; shims also reach
+processes that never read a shell rc, such as an MCP server Claude spawns. Tasks run from a
+temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
+its directory is missing, and is never pulled.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that

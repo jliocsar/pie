@@ -8,7 +8,7 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
-import { ClaudeMcpServer, type PodConfig, type PodFile } from './Api.ts'
+import { ClaudeMcpServer, type PodConfig } from './Api.ts'
 
 const REGULAR_FILE_MODE = 0o644
 
@@ -19,6 +19,12 @@ const PERMISSION_BITS = 0o777
 const PRIVATE_DIRECTORY_MODE = 0o700
 
 const CLAUDE_ENTRY_SEGMENT_COUNT = 2
+
+const MISE_INSTALLER_URL = 'https://mise.run'
+
+const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
+
+const GITHUB_URL = 'https://github.com'
 
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
@@ -89,6 +95,9 @@ const podPaths = Effect.gen(function* () {
     claudeStatePath: path.join(home, '.claude.json'),
     manifestPath: path.join(configDirectory, 'pie', 'manifest.json'),
     misePath: path.join(home, '.local', 'bin', 'mise'),
+    miseConfigPath: path.join(configDirectory, 'mise', 'conf.d', 'pie.toml'),
+    profilePath: path.join(home, '.profile'),
+    workspaceDirectory: path.join(home, 'workspace'),
   }
 })
 
@@ -138,16 +147,16 @@ const writeManifest = Effect.fn('writeManifest')(function* (
 
 export const runCommand = Effect.fn('runCommand')(function* (
   commandLine: readonly [string, ...string[]],
-  directories: { readonly home: string; readonly workingDirectory: string },
+  home: string,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const [command, ...commandArguments] = commandLine
   yield* spawner
     .exitCode(
       ChildProcess.make(command, commandArguments, {
-        cwd: directories.workingDirectory,
+        cwd: home,
         extendEnv: true,
-        env: { HOME: directories.home },
+        env: { HOME: home },
         stdin: 'ignore',
         stdout: 'inherit',
         stderr: 'inherit',
@@ -208,18 +217,18 @@ const failOnForeignMcpServers = (
 
 const writeFileIfChanged = Effect.fn('writeFileIfChanged')(function* (
   filePath: string,
-  podFile: PodFile,
+  content: Uint8Array,
+  fileMode: number,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const fileMode = podFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE
   const unchanged =
     (yield* fileSystem.exists(filePath)) &&
-    Buffer.compare(yield* fileSystem.readFile(filePath), podFile.content) === 0
+    Buffer.compare(yield* fileSystem.readFile(filePath), content) === 0
 
   if (!unchanged) {
     yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true })
-    yield* fileSystem.writeFile(filePath, podFile.content, { mode: fileMode })
+    yield* fileSystem.writeFile(filePath, content, { mode: fileMode })
   }
 
   const currentMode = (yield* fileSystem.stat(filePath)).mode & PERMISSION_BITS
@@ -269,10 +278,7 @@ const syncMcpServers = Effect.fn('syncMcpServers')(function* (
   previousManifest: Manifest,
 ) {
   const runClaudeMcp = (claudeMcpArguments: readonly string[]) =>
-    runCommand([paths.misePath, 'exec', '--', 'claude', 'mcp', ...claudeMcpArguments], {
-      home: paths.home,
-      workingDirectory: paths.home,
-    })
+    runMise(paths, ['exec', '--', 'claude', 'mcp', ...claudeMcpArguments])
   const removeMcpServer = (mcpName: string) =>
     runClaudeMcp(['remove', '--scope', 'user', mcpName]).pipe(
       Effect.when(Effect.succeed(Arr.contains(claudeMcpNames, mcpName))),
@@ -305,14 +311,12 @@ const syncMcpServers = Effect.fn('syncMcpServers')(function* (
 const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   paths: PodPaths,
   podConfig: PodConfig,
+  previousManifest: Manifest,
+  claudeMcpNames: readonly string[],
 ) {
   const path = yield* Path.Path
-  const previousManifest = yield* readManifest(paths.manifestPath, EMPTY_MANIFEST)
-  const claudeMcpNames = yield* readClaudeMcpNames(paths.claudeStatePath)
-  const claudeFilePaths = Arr.map(podConfig.claudeFiles, (claudeFile) => claudeFile.path)
+  const claudeFilePaths = claudeFilePathsOf(podConfig)
 
-  yield* failOnForeignClaudeEntries(paths, claudeFilePaths, previousManifest)
-  yield* failOnForeignMcpServers(podConfig.mcpServers, claudeMcpNames, previousManifest)
   yield* writeManifest(paths.manifestPath, {
     claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
     mcpServers: { ...previousManifest.mcpServers, ...podConfig.mcpServers },
@@ -320,7 +324,11 @@ const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   yield* Effect.forEach(
     podConfig.claudeFiles,
     (claudeFile) =>
-      writeFileIfChanged(path.join(paths.claudeDirectory, claudeFile.path), claudeFile),
+      writeFileIfChanged(
+        path.join(paths.claudeDirectory, claudeFile.path),
+        claudeFile.content,
+        claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
+      ),
     { discard: true },
   )
   yield* Effect.forEach(
@@ -335,8 +343,99 @@ const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   })
 })
 
+const claudeFilePathsOf = (podConfig: PodConfig) =>
+  Arr.map(podConfig.claudeFiles, (claudeFile) => claudeFile.path)
+
+const runMise = (paths: PodPaths, miseArguments: readonly string[]) =>
+  runCommand([paths.misePath, ...miseArguments], paths.home)
+
+const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* (paths: PodPaths) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+
+  if (yield* fileSystem.exists(paths.misePath)) {
+    return
+  }
+
+  const installerPath = path.join(yield* fileSystem.makeTempDirectoryScoped(), 'install-mise.sh')
+
+  yield* runCommand(['curl', '-fsSL', MISE_INSTALLER_URL, '-o', installerPath], paths.home)
+  yield* runCommand(['sh', installerPath], paths.home)
+}, Effect.scoped)
+
+const addLineToProfile = Effect.fn('addLineToProfile')(function* (
+  profilePath: string,
+  profileLine: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const profile = (yield* fileSystem.exists(profilePath))
+    ? yield* fileSystem.readFileString(profilePath)
+    : ''
+
+  if (!Arr.contains(profile.split('\n'), profileLine)) {
+    yield* fileSystem.writeFileString(profilePath, `\n${profileLine}\n`, { flag: 'a' })
+  }
+})
+
+const installTools = Effect.fn('installTools')(function* (paths: PodPaths, podConfig: PodConfig) {
+  yield* installMiseWhenMissing(paths)
+  yield* writeFileIfChanged(
+    paths.miseConfigPath,
+    new TextEncoder().encode(podConfig.miseConfig),
+    REGULAR_FILE_MODE,
+  )
+  yield* runMise(paths, ['install'])
+  yield* addLineToProfile(paths.profilePath, MISE_SHIMS_PATH_LINE)
+})
+
+const runTasks = Effect.fn('runTasks')(function* (paths: PodPaths, podConfig: PodConfig) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const taskDirectory = yield* fileSystem.makeTempDirectoryScoped()
+
+  yield* Effect.forEach(
+    podConfig.tasks,
+    (task) => {
+      const taskPath = path.join(taskDirectory, task.path)
+
+      return writeFileIfChanged(taskPath, task.content, EXECUTABLE_FILE_MODE).pipe(
+        Effect.andThen(runMise(paths, ['exec', '--', taskPath])),
+      )
+    },
+    { discard: true },
+  )
+}, Effect.scoped)
+
+const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(function* (
+  paths: PodPaths,
+  podConfig: PodConfig,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+
+  yield* Effect.forEach(
+    podConfig.repositories,
+    (repository) => {
+      const checkoutPath = path.join(paths.workspaceDirectory, repository.dir)
+
+      return runCommand(
+        ['git', 'clone', `${GITHUB_URL}/${repository.repo}.git`, checkoutPath],
+        paths.home,
+      ).pipe(Effect.when(Effect.map(fileSystem.exists(checkoutPath), (cloned) => !cloned)))
+    },
+    { discard: true },
+  )
+})
+
 export const applyPodConfig = Effect.fn('applyPodConfig')(function* (podConfig: PodConfig) {
   const paths = yield* podPaths
+  const previousManifest = yield* readManifest(paths.manifestPath, EMPTY_MANIFEST)
+  const claudeMcpNames = yield* readClaudeMcpNames(paths.claudeStatePath)
 
-  yield* applyClaudeConfig(paths, podConfig)
+  yield* failOnForeignClaudeEntries(paths, claudeFilePathsOf(podConfig), previousManifest)
+  yield* failOnForeignMcpServers(podConfig.mcpServers, claudeMcpNames, previousManifest)
+  yield* installTools(paths, podConfig)
+  yield* runTasks(paths, podConfig)
+  yield* cloneMissingRepositories(paths, podConfig)
+  yield* applyClaudeConfig(paths, podConfig, previousManifest, claudeMcpNames)
 })
