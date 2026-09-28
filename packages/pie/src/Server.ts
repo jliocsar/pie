@@ -62,6 +62,7 @@ import {
   loadConfig,
   type McpServer,
   type ReferenceKind,
+  type ToolRequest,
 } from './Config.ts'
 
 const SECRET_BYTE_LENGTH = 32
@@ -561,12 +562,19 @@ const invitesHandlers = (serverUrl: string) =>
     }),
   )
 
+const tomlInlineTableOf = (toolRequest: ToolRequest) =>
+  `{ ${Arr.map(
+    Record.toEntries(toolRequest),
+    ([optionName, optionValue]) => `${JSON.stringify(optionName)} = ${JSON.stringify(optionValue)}`,
+  ).join(', ')} }`
+
 const miseConfigOf = (environment: Environment) =>
   [
     MISE_TOOLS_TABLE,
     ...Arr.map(
       Record.toEntries(environment.tools),
-      ([toolName, toolVersion]) => `${JSON.stringify(toolName)} = ${JSON.stringify(toolVersion)}`,
+      ([toolName, toolRequest]) =>
+        `${JSON.stringify(toolName)} = ${tomlInlineTableOf(toolRequest)}`,
     ),
     '',
   ].join('\n')

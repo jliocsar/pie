@@ -20,7 +20,7 @@ tasks = ["workspace", "work/setup-gcloud"]
 
 [tools]
 node = "24.19.0"
-"github:dmtrKovalenko/fff" = "0.10.6"
+"github:dmtrKovalenko/fff" = { version = "0.10.6", matching = "fff-mcp", bin = "fff-mcp" }
 `
 
 const RECIPE_TOML = `label = "Personal"
@@ -83,8 +83,8 @@ describe('loadConfig', () => {
         const config = yield* loadConfigFrom(VALID_CONFIG_FILES)
 
         expect(config.environments['personal']?.tools).toEqual({
-          node: '24.19.0',
-          'github:dmtrKovalenko/fff': '0.10.6',
+          node: { version: '24.19.0' },
+          'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
         })
         expect(config.recipes['personal']?.repositories).toEqual([
           { repo: 'jliocsar/pie', dir: 'jliocsar/pie' },
@@ -185,6 +185,14 @@ describe('loadConfig', () => {
     {
       description: 'a task list under [tools]',
       overrides: { 'environments/personal.toml': `${ENVIRONMENT_TOML}tasks = ["workspace"]\n` },
+      errorClass: ConfigFileInvalid,
+      filePath: 'environments/personal.toml',
+    },
+    {
+      description: 'a tool table without a version',
+      overrides: {
+        'environments/personal.toml': ENVIRONMENT_TOML.replace('version = "0.10.6", ', ''),
+      },
       errorClass: ConfigFileInvalid,
       filePath: 'environments/personal.toml',
     },

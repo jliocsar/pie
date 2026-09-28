@@ -17,9 +17,28 @@ const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'i
 
 const Names = Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
 
+const ToolRequestTable = Schema.StructWithRest(Schema.Struct({ version: Schema.String }), [
+  Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Int, Schema.Boolean])),
+])
+
+export const ToolRequest = Schema.Union([
+  Schema.String.pipe(
+    Schema.decodeTo(
+      ToolRequestTable,
+      SchemaTransformation.transform({
+        decode: (version: string) => ({ version }),
+        encode: (toolRequest) => toolRequest.version,
+      }),
+    ),
+  ),
+  ToolRequestTable,
+])
+
+export type ToolRequest = typeof ToolRequest.Type
+
 export const Environment = Schema.Struct({
   label: Schema.String,
-  tools: Schema.Record(Schema.String, Schema.String),
+  tools: Schema.Record(Schema.String, ToolRequest),
   tasks: Names,
 })
 

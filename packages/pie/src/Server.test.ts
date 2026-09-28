@@ -406,7 +406,7 @@ describe('pie pod config', () => {
 
           expect(podConfig.commit).toBe(headCommit.trim())
           expect(podConfig.miseConfig).toBe(
-            '[tools]\n"node" = "24.19.0"\n"github:dmtrKovalenko/fff" = "0.10.6"\n',
+            '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n',
           )
           expect(podConfig.tasks.map(describePodFile)).toEqual([
             { path: 'workspace', text: SEED_CONFIG_FILES['tasks/workspace'], executable: true },

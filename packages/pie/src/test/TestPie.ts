@@ -32,7 +32,7 @@ tasks = ["workspace"]
 
 [tools]
 node = "24.19.0"
-"github:dmtrKovalenko/fff" = "0.10.6"
+"github:dmtrKovalenko/fff" = { version = "0.10.6", matching = "fff-mcp", bin = "fff-mcp" }
 `,
   'mcp/fff.toml': 'command = "fff-mcp"\n',
   'mcp/docs.toml': 'url = "https://docs.example/mcp"\n',

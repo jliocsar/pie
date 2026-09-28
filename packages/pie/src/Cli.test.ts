@@ -280,7 +280,7 @@ describe('pie pod up', () => {
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
           expect(miseConfig).toBe(
-            '[tools]\n"node" = "24.19.0"\n"github:dmtrKovalenko/fff" = "0.10.6"\n',
+            '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n',
           )
           expect(profile).toBe('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n')
           expect(secondSnapshot).toEqual(firstSnapshot)

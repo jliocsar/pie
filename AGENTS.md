@@ -355,6 +355,11 @@ processes that never read a shell rc, such as an MCP server Claude spawns. Tasks
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 
+An environment's tool is a version or a flat table of mise tool options holding one. Some tools
+need options to be installable at all: fff's releases ship a library beside the `fff-mcp` binary,
+and mise's asset autodetection picked the library (measured). Every tool reaches the box as an
+inline table, since mise reads both forms and one shape is less code.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that
