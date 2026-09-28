@@ -262,7 +262,9 @@ describe('pie pod up', () => {
           const miseConfig = yield* fileSystem.readFileString(
             path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
           )
-          const profile = yield* fileSystem.readFileString(path.join(home, '.profile'))
+          const shellStartupFiles = yield* Effect.forEach(['.profile', '.zshrc'], (fileName) =>
+            fileSystem.readFileString(path.join(home, fileName)),
+          )
 
           yield* runPieOn('laptop', ['pods', 'ls'])
 
@@ -282,7 +284,9 @@ describe('pie pod up', () => {
           expect(miseConfig).toBe(
             '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n',
           )
-          expect(profile).toBe('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n')
+          expect(shellStartupFiles).toEqual(
+            Arr.replicate('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n', 2),
+          )
           expect(secondSnapshot).toEqual(firstSnapshot)
           expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
           expect(output.stdout).toContain(`Applied config commit ${abbreviatedCommit}.`)

@@ -353,8 +353,10 @@ stdin closed, because under `curl | sh` stdin is the script itself.
 
 The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and
 every later command goes through `mise exec`. A new shell finds the tools through mise's shims
-directory, which `pod up` adds to `~/.profile` the way setup.sh adds pie; shims also reach
-processes that never read a shell rc, such as an MCP server Claude spawns. Tasks run from a
+directory, which `pod up` adds to `~/.profile` the way setup.sh adds pie, and to `~/.zshrc`: zsh
+never reads `~/.profile`, and a Sprite's `/etc/zsh/zshrc` puts its own node, bun and python first,
+so only a line read after it wins (measured). Shims also reach processes that never read a shell
+rc, such as an MCP server Claude spawns. Tasks run from a
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 

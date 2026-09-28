@@ -96,7 +96,7 @@ const podPaths = Effect.gen(function* () {
     manifestPath: path.join(configDirectory, 'pie', 'manifest.json'),
     misePath: path.join(home, '.local', 'bin', 'mise'),
     miseConfigPath: path.join(configDirectory, 'mise', 'conf.d', 'pie.toml'),
-    profilePath: path.join(home, '.profile'),
+    shellStartupPaths: [path.join(home, '.profile'), path.join(home, '.zshrc')],
     workspaceDirectory: path.join(home, 'workspace'),
   }
 })
@@ -368,17 +368,17 @@ const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* (pa
   yield* runCommand(['sh', installerPath], paths.home)
 }, Effect.scoped)
 
-const addLineToProfile = Effect.fn('addLineToProfile')(function* (
-  profilePath: string,
-  profileLine: string,
+const addLineToShellStartupFile = Effect.fn('addLineToShellStartupFile')(function* (
+  startupFilePath: string,
+  startupLine: string,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
-  const profile = (yield* fileSystem.exists(profilePath))
-    ? yield* fileSystem.readFileString(profilePath)
+  const startupFile = (yield* fileSystem.exists(startupFilePath))
+    ? yield* fileSystem.readFileString(startupFilePath)
     : ''
 
-  if (!Arr.contains(profile.split('\n'), profileLine)) {
-    yield* fileSystem.writeFileString(profilePath, `\n${profileLine}\n`, { flag: 'a' })
+  if (!Arr.contains(startupFile.split('\n'), startupLine)) {
+    yield* fileSystem.writeFileString(startupFilePath, `\n${startupLine}\n`, { flag: 'a' })
   }
 })
 
@@ -390,7 +390,9 @@ const installTools = Effect.fn('installTools')(function* (paths: PodPaths, podCo
     REGULAR_FILE_MODE,
   )
   yield* runMise(paths, ['install'])
-  yield* addLineToProfile(paths.profilePath, MISE_SHIMS_PATH_LINE)
+  yield* Effect.forEach(paths.shellStartupPaths, (startupFilePath) =>
+    addLineToShellStartupFile(startupFilePath, MISE_SHIMS_PATH_LINE),
+  )
 })
 
 const runTasks = Effect.fn('runTasks')(function* (paths: PodPaths, podConfig: PodConfig) {
