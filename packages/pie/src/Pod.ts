@@ -133,15 +133,20 @@ const writeManifest = Effect.fn('writeManifest')(function* (
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const temporaryManifestPath = `${manifestPath}.tmp`
+  const manifestText = yield* Schema.encodeEffect(ManifestJson)(manifest)
+  const unchanged =
+    (yield* fileSystem.exists(manifestPath)) &&
+    (yield* fileSystem.readFileString(manifestPath)) === manifestText
+
+  if (unchanged) {
+    return
+  }
 
   yield* fileSystem.makeDirectory(path.dirname(manifestPath), {
     recursive: true,
     mode: PRIVATE_DIRECTORY_MODE,
   })
-  yield* fileSystem.writeFileString(
-    temporaryManifestPath,
-    yield* Schema.encodeEffect(ManifestJson)(manifest),
-  )
+  yield* fileSystem.writeFileString(temporaryManifestPath, manifestText)
   yield* fileSystem.rename(temporaryManifestPath, manifestPath)
 })
 

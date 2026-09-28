@@ -241,6 +241,7 @@ describe('pie pod up', () => {
             yield* startPieWithAdmin(temporaryDirectory)
           const home = homeOf('sprite')
           const claudeDirectory = path.join(home, '.claude')
+          const manifestPath = path.join(home, '.config', 'pie', 'manifest.json')
           const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
           const abbreviatedCommit = headCommit.slice(0, 7)
 
@@ -251,11 +252,13 @@ describe('pie pod up', () => {
 
           const firstMiseCalls = yield* readMiseCalls(home)
           const firstSnapshot = yield* snapshotDirectory(claudeDirectory)
+          const firstManifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
 
           yield* runPieOn('sprite', ['pod', 'up'])
 
           const secondMiseCalls = yield* readMiseCalls(home)
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
+          const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
           const miseConfig = yield* fileSystem.readFileString(
             path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
           )
@@ -281,6 +284,7 @@ describe('pie pod up', () => {
           )
           expect(profile).toBe('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n')
           expect(secondSnapshot).toEqual(firstSnapshot)
+          expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
           expect(output.stdout).toContain(`Applied config commit ${abbreviatedCommit}.`)
           expect(output.stdout.at(-1)).toContain(`sprite  personal  ${abbreviatedCommit}`)
         }),
