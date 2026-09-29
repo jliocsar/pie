@@ -142,6 +142,18 @@ Every member with source needs a `test` script. The gate runs
 reported.
 :::
 
+The CLI package splits by side, and each side by layer:
+
+- **The database schema is one migration per file**, never beside the code that queries it.
+  - A migration's id is what SQLite records as applied, so an id never changes once released.
+  - The migrator loads a record of imports, not a directory glob, because the compiled binary carries no source files to glob.
+- **Server logic lives in services**, one per table or outside resource.
+  - An HTTP handler only calls services and turns infrastructure failures into defects.
+- **Each CLI command gets its own module.**
+  - What commands share, reaching pie with the saved credentials, is a service each command provides to itself. So the entry point and the tests run the CLI unchanged.
+
+A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
+
 ## Rules
 
 Leaf imports only: `effect/Effect`, `effect/unstable/cli/Command`.
