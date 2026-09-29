@@ -18,7 +18,8 @@ import * as HttpApiClient from 'effect/unstable/httpapi/HttpApiClient'
 import packageJson from '../package.json' with { type: 'json' }
 import { CLIENT_VERSION_HEADER, type Device, Invite, PieApi } from './Api.ts'
 import { applyPodConfig, configHome } from './Pod.ts'
-import { bootstrapMasterInvite, databaseLayer, serveLayer } from './Server.ts'
+import { databaseLayer } from './server/Database.ts'
+import { bootstrapMasterInvite, serveLayer } from './Server.ts'
 
 const DEFAULT_HOST = '127.0.0.1'
 

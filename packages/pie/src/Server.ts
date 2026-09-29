@@ -1,6 +1,4 @@
 import * as BunHttpServer from '@effect/platform-bun/BunHttpServer'
-import * as SqliteClient from '@effect/sql-sqlite-bun/SqliteClient'
-import * as SqliteMigrator from '@effect/sql-sqlite-bun/SqliteMigrator'
 import * as Arr from 'effect/Array'
 import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
@@ -64,10 +62,9 @@ import {
   type ReferenceKind,
   type ToolRequest,
 } from './Config.ts'
+import { databaseLayer } from './server/Database.ts'
 
 const SECRET_BYTE_LENGTH = 32
-
-const DATABASE_FILE_NAME = 'pie.sqlite'
 
 const MASTER_DEVICE_NAME = 'master'
 
@@ -129,44 +126,6 @@ export class ConfigRepository extends Context.Service<
   }
 >()('pie/ConfigRepository') {}
 
-const createDevicesAndInvites = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient
-
-  yield* sql`
-    CREATE TABLE devices (
-      name TEXT PRIMARY KEY,
-      kind TEXT NOT NULL CHECK (kind IN ('admin', 'pod')),
-      token_hash TEXT NOT NULL UNIQUE,
-      recipe TEXT,
-      last_up_commit TEXT,
-      invited_by TEXT,
-      last_seen_at INTEGER
-    )
-  `
-  yield* sql`
-    CREATE TABLE invites (
-      hash TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('admin', 'pod')),
-      recipe TEXT,
-      expires_at INTEGER NOT NULL,
-      redeemed_at INTEGER,
-      created_by TEXT
-    )
-  `
-})
-
-const createSettings = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient
-
-  yield* sql`
-    CREATE TABLE settings (
-      name TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `
-})
-
 export const generateSecret = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto
   const secretBytes = yield* crypto.randomBytes(SECRET_BYTE_LENGTH)
@@ -180,31 +139,6 @@ export const hashSecret = Effect.fn('hashSecret')(function* (secret: string) {
 
   return Encoding.encodeHex(digest)
 })
-
-export const databaseLayer = (dataDirectory: string) =>
-  Layer.unwrap(
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-
-      yield* fileSystem.makeDirectory(dataDirectory, { recursive: true })
-
-      return SqliteMigrator.layer({
-        loader: SqliteMigrator.fromRecord({
-          '1_create_devices_and_invites': createDevicesAndInvites,
-          '2_create_settings': createSettings,
-        }),
-      }).pipe(
-        Layer.provideMerge(
-          SqliteClient.layer({
-            filename: path.join(dataDirectory, DATABASE_FILE_NAME),
-            transformResultNames: Str.snakeToCamel,
-            transformQueryNames: Str.camelToSnake,
-          }),
-        ),
-      )
-    }),
-  )
 
 const countAdminDevices = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient

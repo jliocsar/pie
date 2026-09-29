@@ -7,7 +7,8 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as HttpRouter from 'effect/unstable/http/HttpRouter'
 import * as SqlClient from 'effect/unstable/sql/SqlClient'
-import { apiLayer, databaseLayer, hashSecret, runGit } from '../Server.ts'
+import { apiLayer, hashSecret, runGit } from '../Server.ts'
+import { databaseLayer } from '../server/Database.ts'
 
 export const ADMIN_TOKEN = 'admin-token'
 

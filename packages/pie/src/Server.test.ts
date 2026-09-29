@@ -19,11 +19,11 @@ import {
 import {
   AlreadyBootstrapped,
   bootstrapMasterInvite,
-  databaseLayer,
   hashSecret,
   runGit,
   ServerUrlMissing,
 } from './Server.ts'
+import { databaseLayer } from './server/Database.ts'
 import {
   ADMIN_TOKEN,
   commitToConfigSource,
