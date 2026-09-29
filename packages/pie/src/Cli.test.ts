@@ -15,7 +15,7 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { NotAnAdmin } from './Api.ts'
 import { InviteUnreadable, NotJoined, pie } from './Cli.ts'
 import { ClaudeEntryNotPies, McpServerNotPies } from './Pod.ts'
-import { runGit } from './Server.ts'
+import { runGit } from './server/ConfigRepository.ts'
 import {
   commitToConfigSource,
   inFreshDirectory,

@@ -19,7 +19,8 @@ import packageJson from '../package.json' with { type: 'json' }
 import { CLIENT_VERSION_HEADER, type Device, Invite, PieApi } from './Api.ts'
 import { applyPodConfig, configHome } from './Pod.ts'
 import { databaseLayer } from './server/Database.ts'
-import { bootstrapMasterInvite, serveLayer } from './Server.ts'
+import { bootstrapMasterInvite, Invites } from './server/Invites.ts'
+import { serveLayer } from './server/Server.ts'
 
 const DEFAULT_HOST = '127.0.0.1'
 
@@ -220,7 +221,7 @@ const bootstrap = Command.make(
   Effect.fn(function* ({ dataDirectory }) {
     const createdInvite = yield* bootstrapMasterInvite(dataDirectory).pipe(
       // oxlint-disable-next-line effecttsgo/strict-effect-provide
-      Effect.provide(databaseLayer(dataDirectory)),
+      Effect.provide(Invites.layer.pipe(Layer.provide(databaseLayer(dataDirectory)))),
     )
 
     yield* Console.log(setupLineOf(createdInvite))

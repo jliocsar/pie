@@ -2,6 +2,7 @@ import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
@@ -16,14 +17,15 @@ import {
   PodConfig,
   type PodFile,
 } from './Api.ts'
+import { runGit } from './server/ConfigRepository.ts'
+import { databaseLayer } from './server/Database.ts'
 import {
   AlreadyBootstrapped,
   bootstrapMasterInvite,
-  hashSecret,
-  runGit,
+  Invites,
   ServerUrlMissing,
-} from './Server.ts'
-import { databaseLayer } from './server/Database.ts'
+} from './server/Invites.ts'
+import { hashSecret } from './server/Secrets.ts'
 import {
   ADMIN_TOKEN,
   commitToConfigSource,
@@ -54,7 +56,9 @@ const describePodFile = (podFile: PodFile) => ({
 })
 
 const bootstrapInto = (dataDirectory: string) =>
-  bootstrapMasterInvite(dataDirectory).pipe(Effect.provide(databaseLayer(dataDirectory)))
+  bootstrapMasterInvite(dataDirectory).pipe(
+    Effect.provide(Invites.layer.pipe(Layer.provide(databaseLayer(dataDirectory)))),
+  )
 
 const secretOf = (invite: string) =>
   Schema.decodeEffect(Invite)(invite).pipe(Effect.map((payload) => payload.secret))
