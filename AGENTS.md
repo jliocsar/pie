@@ -1,7 +1,7 @@
 # AGENTS.md
 
-pie: turns any Linux box into a Claude Code / Pi pod. An Effect v4 TypeScript monorepo; the `pie`
-binary is `packages/pie`, compiled with `bun build --compile`.
+pie: a recipe manager for exe.dev VMs, turning each into a Claude Code / Pi pod. An Effect v4
+TypeScript monorepo; the `pie` binary is `packages/pie`, compiled with `bun build --compile`.
 Members live in `packages/*`. `packages/tsconfig` holds the shared TS base every member extends.
 
 Toolchain is oxc + TypeScript 7: `oxlint` (lint), `oxfmt` (format), `typescript@7` with
@@ -142,15 +142,7 @@ Every member with source needs a `test` script. The gate runs
 reported.
 :::
 
-The CLI package splits by side, and each side by layer:
-
-- **The database schema is one migration per file**, never beside the code that queries it.
-  - A migration's id is what SQLite records as applied, so an id never changes once released.
-  - The migrator loads a record of imports, not a directory glob, because the compiled binary carries no source files to glob.
-- **Server logic lives in services**, one per table or outside resource.
-  - An HTTP handler only calls services and turns infrastructure failures into defects.
-- **Each CLI command gets its own module.**
-  - What commands share, reaching pie with the saved credentials, is a service each command provides to itself. So the entry point and the tests run the CLI unchanged.
+pie has no server and no database. Each VM reads the config repo itself, and each CLI command gets its own module.
 
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 
@@ -301,23 +293,25 @@ Do not guess about Effect, oxc or Bun. Do not trust a plausible claim in a revie
 3. Record it here — never as a comment; `no-comments` rejects one anyway.
 :::
 
-## The config clone
+## Tags
 
-The server pulls the config repo before every request to a route that reads the config, one pull
-at a time, and never before the rest: over ssh to GitHub a pull measured 1.7s and a fresh clone
-2.0s (three pulls, one clone), a cost a route that never reads the config gains nothing from. Every git call
-times out at 10s, about five times that: long enough for a slow network, short enough that an
-unreachable GitHub or an ssh prompt nobody answers turns into serving the last pull instead of a
-queue of hung requests. Git runs with terminal prompts off for the same reason.
+A VM's recipe is its one `pie-recipe-<name>` tag, which `pod up` reads from exe.dev's reflection
+integration on every run. Retagging a VM and running `pod up` again switches its recipe. Every pie
+VM also carries a plain `pie` tag, because an integration attaches to one exact tag and exe.dev has
+no tag glob. The config repo's integration attaches to `pie`, and anything only one recipe needs
+attaches to its `pie-recipe-<name>`. pie never creates tags or integrations; they're made by hand in
+exe.dev.
 
-## Invites
+## The config checkout
 
-An invite is base64url JSON carrying pie's own URL and a secret, so the one line pasted on a box
-is all it needs to find pie; the server owns that URL, never the device that asked for the invite.
-The server trusts only the secret: name, kind and recipe live in its database, looked up by the
-secret's hash, so editing them in the payload changes nothing and the payload needs no signature.
-Nothing secret goes to the logs; the first admin invite comes from running `pie bootstrap` on
-pie's own box, which reads the URL `pie serve` recorded in the database.
+`pod up <org>/<repo>` remembers the repo, so later runs need no argument. The checkout lives in the
+user's cache directory. Each run fetches it and hard-resets it to the remote's HEAD, since it's a
+cache nobody edits, and a reset can't get stuck on a conflict. Git runs with terminal prompts off
+and stdin closed, so a missing integration fails instead of waiting for a password.
+
+Every clone goes through exe.dev's GitHub integration host: the config repo and each recipe
+repository. The host authenticates by the VM's tags, so no credential lives on the box.
+`PIE_GITHUB_URL` replaces the host, which is how the tests point pie at local bare repos.
 
 ## The setup script
 
@@ -329,46 +323,37 @@ A failure names its step through an `EXIT` trap reading the current step's name,
 `step || report`: POSIX sh turns `set -e` off inside anything on the left of `||`, so the step
 would keep going after its first failure.
 
-Tailscale is skipped when pie answers any HTTP at all, a 404 included, which covers boxes already
-on the tailnet and containers on a host that is (measured: a docker container on the laptop reaches
-tailnet IPs through it). The probe answered in about 1ms from beside pie; its 5s timeout is a guess
-at a slow real hop, not a measurement. In a container without systemd the Tailscale package
-installs but its daemon never starts, so `tailscale up` fails, and loudly (measured). A Sprite has
-no systemd either, but it has `sprite-env`, whose services start at every boot: setup.sh runs
-`tailscaled` as one through sudo, with the systemd unit's state and socket paths. A Sprite's
-kernel has tun, so Tailscale needs no userspace mode there (measured).
+pie installs into `/usr/local/bin` through sudo. A plain `ssh vm cmd` gets a `PATH` without
+`~/.local/bin` (measured on exeuntu), and `pod up` has to run from there. With an `<org>/<repo>`
+argument the script runs `pod up` right after the install; without one it only installs pie.
 
 `PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
-`file://`, which curl reads. Without an invite the script only installs pie, which is how an admin
-machine gets it before `pie join`.
+`file://`, which curl reads.
 
 ## Pod up
-
-A pod gets its whole recipe from one request, as JSON rather than the tar the plan names: the
-typed client decodes and validates it, so neither side carries tar code. Each file travels as
-base64 with its executable bit, because tasks must run and a skill can ship scripts. The server
-turns the environment into mise config and the MCP definitions into Claude's shape, so the box
-applies what it gets without knowing the config repo's formats.
 
 On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
 already exists without that fails `pod up` before anything changes, and so does a user MCP server
 of the same name that pie didn't add. The manifest records the union of old and new before any
 write, so a run that dies halfway never leaves pie's own files looking like someone else's.
 
+A recipe's Claude settings merge into `~/.claude/settings.json` key by key, over whatever the user
+set. The manifest records which keys pie wrote, so a key the recipe drops is removed and every
+other key is left alone. The file is written only when the merged result differs.
+
 Pie never writes `~/.claude.json`: it is Claude's live state, rewritten by every running session.
 Pie only reads it for server names and runs `claude mcp add-json` and `claude mcp remove` at user
 scope, so Claude writes its own file. A second `up` of the same recipe runs no `claude` at all.
 
-Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: under setup.sh the shell
-has no new `PATH` yet, and the tests plant a fake mise at that path. Every command it runs gets
-stdin closed, because under `curl | sh` stdin is the script itself.
+Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: that directory isn't on the
+`PATH` a plain `ssh vm cmd` gets, and the tests plant a fake mise at that path. Every command it
+runs gets stdin closed, because under `curl | sh` stdin is the script itself.
 
 The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and
 every later command goes through `mise exec`. A new shell finds the tools through mise's shims
-directory, which `pod up` adds to `~/.profile` the way setup.sh adds pie, and to `~/.zshrc`: zsh
-never reads `~/.profile`, and a Sprite's `/etc/zsh/zshrc` puts its own node, bun and python first,
-so only a line read after it wins (measured). Shims also reach processes that never read a shell
-rc, such as an MCP server Claude spawns. Tasks run from a
+directory, which `pod up` adds to `~/.profile` and to `~/.zshrc`, since zsh never reads
+`~/.profile`. Shims also reach processes that never read a shell rc, such as an MCP server Claude
+spawns. Tasks run from a
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 
