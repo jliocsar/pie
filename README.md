@@ -1,11 +1,13 @@
 # pie
 
-Turns any Linux box into a Claude Code / Pi pod. One `pie` binary: the server, the admin CLI and the
-pod side.
+A recipe manager for exe.dev VMs. A VM tagged `pie-recipe-<name>` becomes a Claude Code / Pi pod
+from that recipe in a config repo:
 
 ```sh
-curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh
+curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh -s -- <org>/<repo>
 ```
+
+Without `<org>/<repo>` the line only installs `pie`.
 
 Pushing a `v*` tag builds `pie-linux-x64` and `pie-linux-arm64` and attaches them and `setup.sh` to
 the release.
