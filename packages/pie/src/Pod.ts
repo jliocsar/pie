@@ -6,9 +6,22 @@ import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
+import * as Stream from 'effect/Stream'
+import * as Str from 'effect/String'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
-import { ClaudeMcpServer, type PodConfig } from './Api.ts'
+import {
+  configFilePathOf,
+  ConfigReferenceMissing,
+  type Environment,
+  HttpMcpServer,
+  listDirectory,
+  loadConfig,
+  type McpServer,
+  type ReferenceKind,
+  type ToolRequest,
+} from './Config.ts'
+import { recipeNameOfThisVm } from './Reflection.ts'
 
 const REGULAR_FILE_MODE = 0o644
 
@@ -24,7 +37,22 @@ const MISE_INSTALLER_URL = 'https://mise.run'
 
 const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
 
-const GITHUB_URL = 'https://github.com'
+const MISE_TOOLS_TABLE = '[tools]'
+
+const EXECUTABLE_MODE_BITS = 0o111
+
+const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
+
+export const ClaudeMcpServer = Schema.Union([
+  Schema.Struct({ type: Schema.Literal('http'), url: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal('stdio'),
+    command: Schema.String,
+    args: Schema.Array(Schema.String),
+  }),
+])
+
+export type ClaudeMcpServer = typeof ClaudeMcpServer.Type
 
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
@@ -71,6 +99,33 @@ export class PodFileUnreadable extends Schema.TaggedError<PodFileUnreadable>()(
   }
 }
 
+export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
+  recipeName: Schema.String,
+}) {
+  override get message(): string {
+    return `This VM is tagged for recipe ${this.recipeName}, but ${configFilePathOf.recipe(this.recipeName)} doesn't exist in the config repo.`
+  }
+}
+
+export class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepositoryUnknown>()(
+  'ConfigRepositoryUnknown',
+  {},
+) {
+  override get message(): string {
+    return "pie doesn't know this VM's config repo yet. Run `pie pod up <org>/<repo>` once, and later runs remember it."
+  }
+}
+
+export class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()('GitCommandFailed', {
+  gitArguments: Schema.Array(Schema.String),
+  exitCode: Schema.Int,
+  gitOutput: Schema.String,
+}) {
+  override get message(): string {
+    return `git ${this.gitArguments.join(' ')} exited with ${this.exitCode}: ${this.gitOutput.trim()}`
+  }
+}
+
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
   commandLine: Schema.Array(Schema.String),
   exitCode: Schema.Int,
@@ -84,6 +139,12 @@ export const configHome = Config.String('XDG_CONFIG_HOME').pipe(
   Config.orElse(() => Config.String('HOME').pipe(Config.map((home) => `${home}/.config`))),
 )
 
+const cacheHome = Config.String('XDG_CACHE_HOME').pipe(
+  Config.orElse(() => Config.String('HOME').pipe(Config.map((home) => `${home}/.cache`))),
+)
+
+const githubUrl = Config.String('PIE_GITHUB_URL').pipe(Config.withDefault(DEFAULT_GITHUB_URL))
+
 const podPaths = Effect.gen(function* () {
   const path = yield* Path.Path
   const home = yield* Config.String('HOME')
@@ -91,6 +152,9 @@ const podPaths = Effect.gen(function* () {
 
   return {
     home,
+    githubUrl: yield* githubUrl,
+    configCheckoutsDirectory: path.join(yield* cacheHome, 'pie'),
+    configRepositoryPath: path.join(configDirectory, 'pie', 'config-repo'),
     claudeDirectory: path.join(home, '.claude'),
     claudeStatePath: path.join(home, '.claude.json'),
     manifestPath: path.join(configDirectory, 'pie', 'manifest.json'),
@@ -102,6 +166,8 @@ const podPaths = Effect.gen(function* () {
 })
 
 type PodPaths = Effect.Success<typeof podPaths>
+
+type PodConfig = Effect.Success<ReturnType<typeof podConfigOf>>
 
 const decodeJsonFile = <Decoded>(schema: Schema.Codec<Decoded, string>) =>
   Effect.fn('decodeJsonFile')(function* (filePath: string, fallback: Decoded) {
@@ -173,6 +239,205 @@ export const runCommand = Effect.fn('runCommand')(function* (
         (exitCode) => new CommandFailed({ commandLine, exitCode }),
       ),
     )
+})
+
+export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const gitProcess = yield* spawner.spawn(
+    ChildProcess.make('git', gitArguments, {
+      extendEnv: true,
+      env: { GIT_TERMINAL_PROMPT: '0' },
+      stdin: 'ignore',
+    }),
+  )
+  const [gitOutput, exitCode] = yield* Effect.all(
+    [Stream.mkString(Stream.decodeText(gitProcess.all)), gitProcess.exitCode],
+    { concurrency: 'unbounded' },
+  )
+
+  if (exitCode === 0) {
+    return gitOutput
+  }
+
+  return yield* new GitCommandFailed({ gitArguments, exitCode, gitOutput })
+}, Effect.scoped)
+
+const configRepositoryOf = Effect.fn('configRepositoryOf')(function* (
+  paths: PodPaths,
+  configRepositoryArgument: Option.Option<string>,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+
+  return yield* Option.match(configRepositoryArgument, {
+    onSome: Effect.succeed,
+    onNone: () =>
+      fileSystem.exists(paths.configRepositoryPath).pipe(
+        Effect.filterOrFail(
+          (remembered) => remembered,
+          () => new ConfigRepositoryUnknown(),
+        ),
+        Effect.andThen(fileSystem.readFileString(paths.configRepositoryPath)),
+        Effect.map(Str.trim),
+      ),
+  })
+})
+
+const rememberConfigRepository = Effect.fn('rememberConfigRepository')(function* (
+  paths: PodPaths,
+  repositoryName: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+
+  yield* fileSystem.makeDirectory(path.dirname(paths.configRepositoryPath), {
+    recursive: true,
+    mode: PRIVATE_DIRECTORY_MODE,
+  })
+  yield* writeFileIfChanged(
+    paths.configRepositoryPath,
+    new TextEncoder().encode(`${repositoryName}\n`),
+    REGULAR_FILE_MODE,
+  )
+})
+
+const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
+  paths: PodPaths,
+  repositoryName: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const checkoutDirectory = path.join(paths.configCheckoutsDirectory, repositoryName)
+
+  if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
+    yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin'])
+    yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
+  } else {
+    yield* runGit([
+      'clone',
+      '--quiet',
+      `${paths.githubUrl}/${repositoryName}.git`,
+      checkoutDirectory,
+    ])
+  }
+
+  const commit = Str.trim(yield* runGit(['-C', checkoutDirectory, 'rev-parse', 'HEAD']))
+
+  return { checkoutDirectory, commit }
+})
+
+const tomlInlineTableOf = (toolRequest: ToolRequest) =>
+  `{ ${Arr.map(
+    Record.toEntries(toolRequest),
+    ([optionName, optionValue]) => `${JSON.stringify(optionName)} = ${JSON.stringify(optionValue)}`,
+  ).join(', ')} }`
+
+const miseConfigOf = (environment: Environment) =>
+  [
+    MISE_TOOLS_TABLE,
+    ...Arr.map(
+      Record.toEntries(environment.tools),
+      ([toolName, toolRequest]) =>
+        `${JSON.stringify(toolName)} = ${tomlInlineTableOf(toolRequest)}`,
+    ),
+    '',
+  ].join('\n')
+
+const isHttpMcpServer = Schema.is(HttpMcpServer)
+
+const claudeMcpServerOf = (mcpServer: McpServer): ClaudeMcpServer =>
+  isHttpMcpServer(mcpServer)
+    ? { type: 'http', url: mcpServer.url }
+    : { type: 'stdio', command: mcpServer.command, args: mcpServer.args }
+
+const lookUpRecipeReference = <Value>(
+  recipeName: string,
+  referenceKind: ReferenceKind,
+  entries: Record.ReadonlyRecord<string, Value>,
+  referenceName: string,
+): Effect.Effect<Value, ConfigReferenceMissing> =>
+  Option.match(Record.get(entries, referenceName), {
+    onNone: () =>
+      Effect.fail(
+        new ConfigReferenceMissing({
+          filePath: configFilePathOf.recipe(recipeName),
+          referenceKind,
+          referenceName,
+        }),
+      ),
+    onSome: Effect.succeed,
+  })
+
+const readPodFile = Effect.fn('readPodFile')(function* (
+  configDirectory: string,
+  filePath: string,
+  podPath: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const absoluteFilePath = path.join(configDirectory, filePath)
+  const content = yield* fileSystem.readFile(absoluteFilePath)
+  const fileInfo = yield* fileSystem.stat(absoluteFilePath)
+
+  return { path: podPath, content, executable: (fileInfo.mode & EXECUTABLE_MODE_BITS) !== 0 }
+})
+
+const readRepositoryFile = (configDirectory: string, filePath: string) =>
+  readPodFile(configDirectory, filePath, filePath)
+
+const readSkillFiles = Effect.fn('readSkillFiles')(function* (
+  configDirectory: string,
+  skillName: string,
+) {
+  const path = yield* Path.Path
+  const skillDirectory = path.dirname(configFilePathOf.skill(skillName))
+  const skillFilePaths = yield* listDirectory(configDirectory, skillDirectory, 'File', {
+    recursive: true,
+  })
+
+  return yield* Effect.forEach(skillFilePaths, (skillFilePath) =>
+    readRepositoryFile(configDirectory, path.join(skillDirectory, skillFilePath)),
+  )
+})
+
+const podConfigOf = Effect.fn('podConfigOf')(function* (
+  configDirectory: string,
+  recipeName: string,
+  commit: string,
+) {
+  const config = yield* loadConfig(configDirectory)
+  const recipe = yield* Option.match(Record.get(config.recipes, recipeName), {
+    onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
+    onSome: Effect.succeed,
+  })
+  const environment = yield* lookUpRecipeReference(
+    recipeName,
+    'environment',
+    config.environments,
+    recipe.environment,
+  )
+  const mcpServerEntries = yield* Effect.forEach(recipe.mcp, (mcpName) =>
+    lookUpRecipeReference(recipeName, 'mcp', config.mcpServers, mcpName).pipe(
+      Effect.map((mcpServer) => [mcpName, claudeMcpServerOf(mcpServer)] as const),
+    ),
+  )
+  const agentFiles = yield* Effect.forEach(recipe.agents, (agentName) =>
+    readRepositoryFile(configDirectory, configFilePathOf.agent(agentName)),
+  )
+  const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
+    readSkillFiles(configDirectory, skillName),
+  )
+  const tasks = yield* Effect.forEach(environment.tasks, (taskName) =>
+    readPodFile(configDirectory, configFilePathOf.task(taskName), taskName),
+  )
+
+  return {
+    commit,
+    miseConfig: miseConfigOf(environment),
+    tasks,
+    repositories: recipe.repositories,
+    claudeFiles: [...agentFiles, ...Arr.flatten(skillFiles)],
+    mcpServers: Record.fromEntries(mcpServerEntries),
+  }
 })
 
 const entryOf = (claudeFilePath: string) =>
@@ -426,7 +691,7 @@ const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(function*
       const checkoutPath = path.join(paths.workspaceDirectory, repository.dir)
 
       return runCommand(
-        ['git', 'clone', `${GITHUB_URL}/${repository.repo}.git`, checkoutPath],
+        ['git', 'clone', `${paths.githubUrl}/${repository.repo}.git`, checkoutPath],
         paths.home,
       ).pipe(Effect.when(Effect.map(fileSystem.exists(checkoutPath), (cloned) => !cloned)))
     },
@@ -434,8 +699,10 @@ const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(function*
   )
 })
 
-export const applyPodConfig = Effect.fn('applyPodConfig')(function* (podConfig: PodConfig) {
-  const paths = yield* podPaths
+const applyPodConfig = Effect.fn('applyPodConfig')(function* (
+  paths: PodPaths,
+  podConfig: PodConfig,
+) {
   const previousManifest = yield* readManifest(paths.manifestPath, EMPTY_MANIFEST)
   const claudeMcpNames = yield* readClaudeMcpNames(paths.claudeStatePath)
 
@@ -445,4 +712,21 @@ export const applyPodConfig = Effect.fn('applyPodConfig')(function* (podConfig: 
   yield* runTasks(paths, podConfig)
   yield* cloneMissingRepositories(paths, podConfig)
   yield* applyClaudeConfig(paths, podConfig, previousManifest, claudeMcpNames)
+})
+
+export const upPod = Effect.fn('upPod')(function* (
+  configRepositoryArgument: Option.Option<string>,
+) {
+  const paths = yield* podPaths
+  const repositoryName = yield* configRepositoryOf(paths, configRepositoryArgument)
+  const recipeName = yield* recipeNameOfThisVm
+  const { checkoutDirectory, commit } = yield* syncConfigCheckout(paths, repositoryName)
+
+  yield* rememberConfigRepository(paths, repositoryName)
+
+  const podConfig = yield* podConfigOf(checkoutDirectory, recipeName, commit)
+
+  yield* applyPodConfig(paths, podConfig)
+
+  return { recipeName, commit }
 })

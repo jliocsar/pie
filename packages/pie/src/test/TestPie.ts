@@ -1,22 +1,11 @@
-import * as BunHttpServer from '@effect/platform-bun/BunHttpServer'
 import * as Arr from 'effect/Array'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
-import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
-import * as HttpRouter from 'effect/unstable/http/HttpRouter'
-import * as SqlClient from 'effect/unstable/sql/SqlClient'
-import { runGit } from '../server/ConfigRepository.ts'
-import { databaseLayer } from '../server/Database.ts'
-import { hashSecret } from '../server/Secrets.ts'
-import { apiLayer } from '../server/Server.ts'
+import { runGit } from '../Pod.ts'
 
-export const ADMIN_TOKEN = 'admin-token'
-
-export const POD_TOKEN = 'pod-token'
-
-export const SERVER_URL = 'http://pie.test'
+export const CONFIG_REPOSITORY = 'jliocsar/agents-machines'
 
 const REGULAR_FILE_MODE = 0o644
 
@@ -46,7 +35,7 @@ node = "24.19.0"
   'tasks/workspace': '#!/bin/sh\nmkdir -p "$HOME/workspace"\n',
 } satisfies Record.ReadonlyRecord<string, string>
 
-export const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
+const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
 
 export const inFreshDirectory = <Success, Failure, Requirements>(
   useDirectory: (temporaryDirectory: string) => Effect.Effect<Success, Failure, Requirements>,
@@ -57,24 +46,6 @@ export const inFreshDirectory = <Success, Failure, Requirements>(
 
     return yield* useDirectory(temporaryDirectory)
   }).pipe(Effect.scoped)
-
-export const seedDevices = (dataDirectory: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient
-    const adminTokenHash = yield* hashSecret(ADMIN_TOKEN)
-    const podTokenHash = yield* hashSecret(POD_TOKEN)
-
-    yield* sql`INSERT INTO devices ${sql.insert([
-      { name: 'laptop', kind: 'admin', tokenHash: adminTokenHash, recipe: null, invitedBy: null },
-      {
-        name: 'box',
-        kind: 'pod',
-        tokenHash: podTokenHash,
-        recipe: 'personal',
-        invitedBy: 'laptop',
-      },
-    ])}`
-  }).pipe(Effect.provide(databaseLayer(dataDirectory)))
 
 export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* (
   sourceDirectory: string,
@@ -118,49 +89,15 @@ export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* 
   ])
 })
 
-export const startPie = Effect.fn('startPie')(function* (temporaryDirectory: string) {
+export const makeConfigSource = Effect.fn('makeConfigSource')(function* (
+  temporaryDirectory: string,
+) {
   const path = yield* Path.Path
-  const dataDirectory = path.join(temporaryDirectory, 'data')
-  const sourceDirectory = path.join(temporaryDirectory, 'source')
+  const githubDirectory = path.join(temporaryDirectory, 'github')
+  const sourceDirectory = path.join(githubDirectory, `${CONFIG_REPOSITORY}.git`)
 
   yield* runGit(['init', '--quiet', sourceDirectory])
   yield* commitToConfigSource(sourceDirectory, SEED_CONFIG_FILES, SEED_EXECUTABLE_FILE_PATHS)
 
-  const { handler } = yield* Effect.acquireRelease(
-    Effect.sync(() =>
-      HttpRouter.toWebHandler(
-        apiLayer({
-          dataDirectory,
-          configRepositoryUrl: sourceDirectory,
-          serverUrl: SERVER_URL,
-        }).pipe(Layer.provide(BunHttpServer.layerHttpServices)),
-        { disableLogger: true },
-      ),
-    ),
-    ({ dispose }) => Effect.promise(dispose),
-  )
-  const fetchPie = (input: string | URL | Request, init: RequestInit | undefined) =>
-    handler(input instanceof Request ? input : new Request(input.toString(), init))
-  const requestPie = (requestPath: string, init: RequestInit) =>
-    Effect.promise(() => fetchPie(`${SERVER_URL}${requestPath}`, init))
-
-  return { requestPie, fetchPie, dataDirectory, sourceDirectory }
-})
-
-export const startSeededPie = Effect.fn('startSeededPie')(function* (temporaryDirectory: string) {
-  const path = yield* Path.Path
-
-  yield* seedDevices(path.join(temporaryDirectory, 'data'))
-
-  return yield* startPie(temporaryDirectory)
-})
-
-export const jsonRequest = (
-  method: string,
-  headers: Record<string, string>,
-  body: Readonly<Record<string, string | null>>,
-) => ({
-  method,
-  headers: { ...headers, 'content-type': 'application/json' },
-  body: JSON.stringify(body),
+  return { githubDirectory, sourceDirectory }
 })

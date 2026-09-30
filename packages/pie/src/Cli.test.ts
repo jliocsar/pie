@@ -12,18 +12,15 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
-import { NotAnAdmin } from './Api.ts'
 import { pie } from './Cli.ts'
-import { InviteUnreadable } from './commands/Join.ts'
-import { NotJoined } from './commands/PieClient.ts'
-import { ClaudeEntryNotPies, McpServerNotPies } from './Pod.ts'
-import { runGit } from './server/ConfigRepository.ts'
+import { ClaudeEntryNotPies, McpServerNotPies, runGit } from './Pod.ts'
+import { RecipeTagMissing, RecipeTagsConflict, REFLECTION_TAGS_URL } from './Reflection.ts'
 import {
   commitToConfigSource,
+  CONFIG_REPOSITORY,
   inFreshDirectory,
+  makeConfigSource,
   SEED_CONFIG_FILES,
-  SERVER_URL,
-  startPie,
 } from './test/TestPie.ts'
 
 const FAKE_MISE_SCRIPT = `#!/bin/sh
@@ -33,6 +30,8 @@ printf '%s\\n' "$*" >> "$HOME/mise-calls"
 const EXECUTABLE_FILE_MODE = 0o755
 
 const PERMISSION_BITS = 0o777
+
+const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
 
@@ -47,58 +46,52 @@ const MCP_ADD_CALLS = [
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
 
-const runPie = (commandLine: readonly string[]) =>
-  Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
-    Effect.provide(FetchHttpClient.layer),
-  )
-
 const capturingConsole = () => {
   const stdout: string[] = []
-  const stderr: string[] = []
   const console: Console.Console = {
     ...globalThis.console,
     log: (...parts: readonly string[]) => {
       stdout.push(parts.join(' '))
     },
-    error: (...parts: readonly string[]) => {
-      stderr.push(parts.join(' '))
-    },
   }
 
-  return { stdout, stderr, console }
+  return { stdout, console }
 }
 
-const lastWordOf = (line: string | undefined) => line?.split(' ').at(-1) ?? ''
+const reflectionAnswering = (vmTags: readonly string[]) =>
+  Object.assign(
+    (input: string | URL | Request) =>
+      Promise.resolve(
+        String(input instanceof Request ? input.url : input) === REFLECTION_TAGS_URL
+          ? Response.json({ tags: vmTags })
+          : new Response(null, { status: 404 }),
+      ),
+    { preconnect: globalThis.fetch.preconnect },
+  )
 
-const startPieWithAdmin = Effect.fn('startPieWithAdmin')(function* (temporaryDirectory: string) {
+const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) {
   const path = yield* Path.Path
-  const startedPie = yield* startPie(temporaryDirectory)
+  const { githubDirectory, sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
-  const fetchThroughPie = Object.assign(startedPie.fetchPie, {
-    preconnect: globalThis.fetch.preconnect,
-  })
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
-  const runPieOn = (machineName: string, commandLine: readonly string[]) =>
-    runPie(commandLine).pipe(
-      Effect.provideService(FetchHttpClient.Fetch, fetchThroughPie),
+  const runPieOn = (
+    machineName: string,
+    commandLine: readonly string[],
+    vmTags: readonly string[] = PERSONAL_POD_TAGS,
+  ) =>
+    Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(vmTags)),
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
-        ConfigProvider.fromEnv({ env: { HOME: homeOf(machineName) } }),
-      ),
-    )
-  const joinPod = (machineName: string, inviteArguments: readonly string[]) =>
-    runPieOn('laptop', ['invite', 'new', '--name', machineName, ...inviteArguments]).pipe(
-      Effect.andThen(
-        Effect.suspend(() => runPieOn(machineName, ['join', lastWordOf(output.stdout.at(-1))])),
+        ConfigProvider.fromEnv({
+          env: { HOME: homeOf(machineName), PIE_GITHUB_URL: githubDirectory },
+        }),
       ),
     )
 
-  yield* startedPie.requestPie('/whoami', {})
-  yield* runPieOn('server', ['bootstrap', '--data-dir', startedPie.dataDirectory])
-  yield* runPieOn('laptop', ['join', lastWordOf(output.stdout.at(-1))])
-
-  return { ...startedPie, output, homeOf, runPieOn, joinPod }
+  return { sourceDirectory, output, homeOf, runPieOn }
 })
 
 const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
@@ -181,57 +174,6 @@ const writeClaudeState = Effect.fn('writeClaudeState')(function* (
 
 afterAll(() => bunServicesRuntime.dispose())
 
-describe('pie', () => {
-  test('--version succeeds', () => bunServicesRuntime.runPromise(runPie(['--version'])))
-
-  test('bootstrap, join as master, invite a pod, join as the pod, and list it', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { output, homeOf, runPieOn, joinPod } = yield* startPieWithAdmin(temporaryDirectory)
-          const masterSetupLine = output.stdout.at(-2)
-
-          yield* joinPod('sprite', ['--recipe', 'personal'])
-
-          const podSetupLine = output.stdout.at(-2)
-
-          yield* runPieOn('laptop', ['pods', 'ls'])
-
-          const podTable = output.stdout.at(-1)
-          const tokenMode = yield* fileSystem
-            .stat(path.join(homeOf('laptop'), '.config', 'pie', 'token'))
-            .pipe(Effect.map((info) => info.mode & PERMISSION_BITS))
-          const savedServerUrl = yield* fileSystem.readFileString(
-            path.join(homeOf('laptop'), '.config', 'pie', 'url'),
-          )
-          const podListingPods = yield* Effect.flip(runPieOn('sprite', ['pods', 'ls']))
-          const strangerListingPods = yield* Effect.flip(runPieOn('stranger', ['pods', 'ls']))
-          const garbageJoin = yield* Effect.flip(runPieOn('stranger', ['join', 'not-an-invite']))
-
-          expect(masterSetupLine).toStartWith('pie join ')
-          expect(podSetupLine).toStartWith(
-            'curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh -s -- ',
-          )
-          expect(output.stdout).toContain(`Joined pie at ${SERVER_URL} as master (admin).`)
-          expect(output.stdout).toContain(`Joined pie at ${SERVER_URL} as sprite (pod).`)
-          expect(podTable).toBe(
-            [
-              'NAME    RECIPE    COMMIT  INVITED BY  LAST SEEN',
-              'sprite  personal  -       master      just now',
-            ].join('\n'),
-          )
-          expect(tokenMode).toBe(0o600)
-          expect(savedServerUrl).toBe(`${SERVER_URL}\n`)
-          expect(podListingPods).toBeInstanceOf(NotAnAdmin)
-          expect(strangerListingPods).toBeInstanceOf(NotJoined)
-          expect(garbageJoin).toBeInstanceOf(InviteUnreadable)
-        }),
-      ),
-    ))
-})
-
 describe('pie pod up', () => {
   test('installs the tools, runs the tasks, writes ~/.claude, adds MCPs through claude, and a rerun changes nothing', () =>
     bunServicesRuntime.runPromise(
@@ -239,24 +181,22 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { output, homeOf, runPieOn, joinPod, sourceDirectory } =
-            yield* startPieWithAdmin(temporaryDirectory)
-          const home = homeOf('sprite')
+          const { output, homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
           const manifestPath = path.join(home, '.config', 'pie', 'manifest.json')
           const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
           const abbreviatedCommit = headCommit.slice(0, 7)
 
-          yield* joinPod('sprite', ['--recipe', 'personal'])
           yield* prepareBox(home)
-          yield* runPieOn('sprite', ['pod', 'up'])
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
           const firstMiseCalls = yield* readMiseCalls(home)
           const firstSnapshot = yield* snapshotDirectory(claudeDirectory)
           const firstManifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
 
-          yield* runPieOn('sprite', ['pod', 'up'])
+          yield* runPieOn('pod', ['pod', 'up'])
 
           const secondMiseCalls = yield* readMiseCalls(home)
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
@@ -267,8 +207,6 @@ describe('pie pod up', () => {
           const shellStartupFiles = yield* Effect.forEach(['.profile', '.zshrc'], (fileName) =>
             fileSystem.readFileString(path.join(home, fileName)),
           )
-
-          yield* runPieOn('laptop', ['pods', 'ls'])
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
@@ -291,8 +229,9 @@ describe('pie pod up', () => {
           )
           expect(secondSnapshot).toEqual(firstSnapshot)
           expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
-          expect(output.stdout).toContain(`Applied config commit ${abbreviatedCommit}.`)
-          expect(output.stdout.at(-1)).toContain(`sprite  personal  ${abbreviatedCommit}`)
+          expect(output.stdout).toEqual(
+            Arr.replicate(`Applied recipe personal at config commit ${abbreviatedCommit}.`, 2),
+          )
         }),
       ),
     ))
@@ -303,15 +242,13 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn, joinPod, sourceDirectory } =
-            yield* startPieWithAdmin(temporaryDirectory)
-          const home = homeOf('sprite')
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
           const ownSkillPath = path.join(claudeDirectory, 'skills', 'mine', 'SKILL.md')
 
-          yield* joinPod('sprite', ['--recipe', 'personal'])
           yield* prepareBox(home)
-          yield* runPieOn('sprite', ['pod', 'up'])
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs', 'mine'])
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
           yield* fileSystem.writeFileString(ownSkillPath, 'mine')
@@ -323,7 +260,7 @@ describe('pie pod up', () => {
             },
             [],
           )
-          yield* runPieOn('sprite', ['pod', 'up'])
+          yield* runPieOn('pod', ['pod', 'up'])
 
           const remainingClaudeFiles = yield* snapshotDirectory(claudeDirectory)
           const handoffStillThere = yield* fileSystem.exists(
@@ -349,20 +286,20 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn, joinPod } = yield* startPieWithAdmin(temporaryDirectory)
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
           const skillHome = homeOf('skill-box')
           const mcpHome = homeOf('mcp-box')
           const ownSkillPath = path.join(skillHome, '.claude', 'skills', 'handoff', 'SKILL.md')
 
-          yield* joinPod('skill-box', ['--recipe', 'personal'])
-          yield* joinPod('mcp-box', ['--recipe', 'personal'])
           yield* Effect.forEach([skillHome, mcpHome], prepareBox, { discard: true })
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
           yield* fileSystem.writeFileString(ownSkillPath, 'mine')
           yield* writeClaudeState(mcpHome, ['fff'])
 
-          const skillClash = yield* Effect.flip(runPieOn('skill-box', ['pod', 'up']))
-          const mcpClash = yield* Effect.flip(runPieOn('mcp-box', ['pod', 'up']))
+          const skillClash = yield* Effect.flip(
+            runPieOn('skill-box', ['pod', 'up', CONFIG_REPOSITORY]),
+          )
+          const mcpClash = yield* Effect.flip(runPieOn('mcp-box', ['pod', 'up', CONFIG_REPOSITORY]))
           const skillBoxAgentsWritten = yield* fileSystem.exists(
             path.join(skillHome, '.claude', 'agents'),
           )
@@ -382,16 +319,22 @@ describe('pie pod up', () => {
       ),
     ))
 
-  test('a pod with no recipe gets told so, and succeeds', () =>
+  test('a VM without exactly one pie-recipe tag fails, naming its tags', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const { output, runPieOn, joinPod } = yield* startPieWithAdmin(temporaryDirectory)
+          const { runPieOn } = yield* startPods(temporaryDirectory)
+          const untagged = yield* Effect.flip(
+            runPieOn('untagged', ['pod', 'up', CONFIG_REPOSITORY], ['pie']),
+          )
+          const doubleTagged = yield* Effect.flip(
+            runPieOn('double', ['pod', 'up', CONFIG_REPOSITORY], ['pie-recipe-a', 'pie-recipe-b']),
+          )
 
-          yield* joinPod('bare', [])
-          yield* runPieOn('bare', ['pod', 'up'])
-
-          expect(output.stderr.at(-1)).toBe("bare has no recipe yet, so there's nothing to apply.")
+          expect(untagged).toEqual(new RecipeTagMissing({ vmTags: ['pie'] }))
+          expect(doubleTagged).toEqual(
+            new RecipeTagsConflict({ recipeTags: ['pie-recipe-a', 'pie-recipe-b'] }),
+          )
         }),
       ),
     ))
