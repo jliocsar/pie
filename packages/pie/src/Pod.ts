@@ -11,6 +11,7 @@ import * as Str from 'effect/String'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import {
+  ClaudeSettings,
   configFilePathOf,
   ConfigReferenceMissing,
   type Environment,
@@ -37,8 +38,6 @@ const MISE_INSTALLER_URL = 'https://mise.run'
 
 const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
 
-const MISE_TOOLS_TABLE = '[tools]'
-
 const EXECUTABLE_MODE_BITS = 0o111
 
 const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
@@ -56,6 +55,7 @@ export type ClaudeMcpServer = typeof ClaudeMcpServer.Type
 
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
+  claudeSettingsKeys: Schema.Array(Schema.String),
   mcpServers: Schema.Record(Schema.String, ClaudeMcpServer),
 })
 
@@ -63,7 +63,9 @@ type Manifest = typeof Manifest.Type
 
 const ManifestJson = Schema.fromJsonString(Manifest)
 
-const EMPTY_MANIFEST: Manifest = { claudeFiles: [], mcpServers: {} }
+const EMPTY_MANIFEST: Manifest = { claudeFiles: [], claudeSettingsKeys: [], mcpServers: {} }
+
+const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings, { space: 2 })
 
 const ClaudeStateJson = Schema.fromJsonString(
   Schema.Struct({
@@ -156,6 +158,7 @@ const podPaths = Effect.gen(function* () {
     configCheckoutsDirectory: path.join(yield* cacheHome, 'pie'),
     configRepositoryPath: path.join(configDirectory, 'pie', 'config-repo'),
     claudeDirectory: path.join(home, '.claude'),
+    claudeSettingsPath: path.join(home, '.claude', 'settings.json'),
     claudeStatePath: path.join(home, '.claude.json'),
     manifestPath: path.join(configDirectory, 'pie', 'manifest.json'),
     misePath: path.join(home, '.local', 'bin', 'mise'),
@@ -331,13 +334,20 @@ const tomlInlineTableOf = (toolRequest: ToolRequest) =>
     ([optionName, optionValue]) => `${JSON.stringify(optionName)} = ${JSON.stringify(optionValue)}`,
   ).join(', ')} }`
 
+const tomlTableOf = (tableName: string, tomlValues: Record.ReadonlyRecord<string, string>) => [
+  `[${tableName}]`,
+  ...Arr.map(
+    Record.toEntries(tomlValues),
+    ([key, tomlValue]) => `${JSON.stringify(key)} = ${tomlValue}`,
+  ),
+]
+
 const miseConfigOf = (environment: Environment) =>
   [
-    MISE_TOOLS_TABLE,
-    ...Arr.map(
-      Record.toEntries(environment.tools),
-      ([toolName, toolRequest]) =>
-        `${JSON.stringify(toolName)} = ${tomlInlineTableOf(toolRequest)}`,
+    ...tomlTableOf('tools', Record.map(environment.tools, tomlInlineTableOf)),
+    ...tomlTableOf(
+      'env',
+      Record.map(environment.env, (envValue) => JSON.stringify(envValue)),
     ),
     '',
   ].join('\n')
@@ -420,8 +430,14 @@ const podConfigOf = Effect.fn('podConfigOf')(function* (
       Effect.map((mcpServer) => [mcpName, claudeMcpServerOf(mcpServer)] as const),
     ),
   )
-  const agentFiles = yield* Effect.forEach(recipe.agents, (agentName) =>
-    readRepositoryFile(configDirectory, configFilePathOf.agent(agentName)),
+  const agentFiles = yield* Effect.forEach(recipe.claude.agents, (agentName) =>
+    readPodFile(configDirectory, configFilePathOf.agent(agentName), `agents/${agentName}.md`),
+  )
+  const claudeSettings = Option.getOrElse(
+    Option.flatMap(Option.fromUndefinedOr(recipe.claude.settings), (settingsName) =>
+      Record.get(config.settings, settingsName),
+    ),
+    () => ({}),
   )
   const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
     readSkillFiles(configDirectory, skillName),
@@ -436,6 +452,7 @@ const podConfigOf = Effect.fn('podConfigOf')(function* (
     tasks,
     repositories: recipe.repositories,
     claudeFiles: [...agentFiles, ...Arr.flatten(skillFiles)],
+    claudeSettings,
     mcpServers: Record.fromEntries(mcpServerEntries),
   }
 })
@@ -578,6 +595,32 @@ const syncMcpServers = Effect.fn('syncMcpServers')(function* (
   yield* Effect.forEach(staleMcpNames, removeMcpServer, { discard: true })
 })
 
+const mergeClaudeSettings = Effect.fn('mergeClaudeSettings')(function* (
+  paths: PodPaths,
+  claudeSettings: ClaudeSettings,
+  previousManifest: Manifest,
+) {
+  const staleKeys = Arr.difference(previousManifest.claudeSettingsKeys, Record.keys(claudeSettings))
+
+  if (Record.isEmptyRecord(claudeSettings) && Arr.isReadonlyArrayEmpty(staleKeys)) {
+    return
+  }
+
+  const currentSettings = yield* decodeJsonFile(ClaudeSettingsJson)(paths.claudeSettingsPath, {})
+  const mergedSettings = {
+    ...Record.filter(currentSettings, (_value, key) => !Arr.contains(staleKeys, key)),
+    ...claudeSettings,
+  }
+
+  const settingsText = yield* Schema.encodeEffect(ClaudeSettingsJson)(mergedSettings)
+
+  yield* writeFileIfChanged(
+    paths.claudeSettingsPath,
+    new TextEncoder().encode(`${settingsText}\n`),
+    REGULAR_FILE_MODE,
+  )
+})
+
 const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   paths: PodPaths,
   podConfig: PodConfig,
@@ -589,6 +632,10 @@ const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
 
   yield* writeManifest(paths.manifestPath, {
     claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
+    claudeSettingsKeys: Arr.union(
+      previousManifest.claudeSettingsKeys,
+      Record.keys(podConfig.claudeSettings),
+    ),
     mcpServers: { ...previousManifest.mcpServers, ...podConfig.mcpServers },
   })
   yield* Effect.forEach(
@@ -606,9 +653,11 @@ const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
     (claudeFilePath) => removeStaleClaudeFile(paths.claudeDirectory, claudeFilePath),
     { discard: true },
   )
+  yield* mergeClaudeSettings(paths, podConfig.claudeSettings, previousManifest)
   yield* syncMcpServers(paths, podConfig.mcpServers, claudeMcpNames, previousManifest)
   yield* writeManifest(paths.manifestPath, {
     claudeFiles: claudeFilePaths,
+    claudeSettingsKeys: Record.keys(podConfig.claudeSettings),
     mcpServers: podConfig.mcpServers,
   })
 })

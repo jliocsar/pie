@@ -39,6 +39,9 @@ export type ToolRequest = typeof ToolRequest.Type
 export const Environment = Schema.Struct({
   label: Schema.String,
   tools: Schema.Record(Schema.String, ToolRequest),
+  env: Schema.Record(Schema.String, Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
   tasks: Names,
 })
 
@@ -63,21 +66,23 @@ export const Repository = Schema.Union([
 
 export type Repository = typeof Repository.Type
 
+const ClaudeRecipe = Schema.Struct({
+  agents: Names,
+  settings: Schema.optionalKey(Schema.String),
+})
+
 export const Recipe = Schema.Struct({
   label: Schema.String,
   environment: Schema.String,
   repositories: Schema.Array(Repository).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  agents: Names,
   skills: Names,
   mcp: Names,
+  claude: ClaudeRecipe.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 })
 
 export type Recipe = typeof Recipe.Type
 
-export const HttpMcpServer = Schema.Struct({
-  url: Schema.String,
-  auth: Schema.optionalKey(Schema.String),
-})
+export const HttpMcpServer = Schema.Struct({ url: Schema.String })
 
 export const StdioMcpServer = Schema.Struct({
   command: Schema.String,
@@ -95,18 +100,32 @@ export const Frontmatter = Schema.Struct({
 
 export type Frontmatter = typeof Frontmatter.Type
 
+export const ClaudeSettings = Schema.Record(Schema.String, Schema.Unknown)
+
+export type ClaudeSettings = typeof ClaudeSettings.Type
+
+const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings)
+
 export const Config = Schema.Struct({
   environments: Schema.Record(Schema.String, Environment),
   recipes: Schema.Record(Schema.String, Recipe),
   mcpServers: Schema.Record(Schema.String, McpServer),
   agents: Schema.Record(Schema.String, Frontmatter),
+  settings: Schema.Record(Schema.String, ClaudeSettings),
   skills: Schema.Record(Schema.String, Frontmatter),
   tasks: Schema.Array(Schema.String),
 })
 
 export type Config = typeof Config.Type
 
-export const ReferenceKind = Schema.Literals(['environment', 'agent', 'skill', 'mcp', 'task'])
+export const ReferenceKind = Schema.Literals([
+  'environment',
+  'agent',
+  'settings',
+  'skill',
+  'mcp',
+  'task',
+])
 
 export type ReferenceKind = typeof ReferenceKind.Type
 
@@ -114,7 +133,8 @@ export const configFilePathOf = {
   environment: (environmentName: string) => `environments/${environmentName}.toml`,
   recipe: (recipeName: string) => `recipes/${recipeName}.toml`,
   mcp: (mcpName: string) => `mcp/${mcpName}.toml`,
-  agent: (agentName: string) => `agents/${agentName}.md`,
+  agent: (agentName: string) => `claude/agents/${agentName}.md`,
+  settings: (settingsName: string) => `claude/settings/${settingsName}.json`,
   skill: (skillName: string) => `skills/${skillName}/SKILL.md`,
   task: (taskName: string) => `tasks/${taskName}`,
 }
@@ -125,7 +145,6 @@ export class ConfigFileUnparseable extends Schema.TaggedError<ConfigFileUnparsea
     filePath: Schema.String,
     parserMessage: Schema.String,
   },
-  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} doesn't parse: ${this.parserMessage}`
@@ -137,7 +156,6 @@ export class FrontmatterMissing extends Schema.TaggedError<FrontmatterMissing>()
   {
     filePath: Schema.String,
   },
-  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} has no frontmatter. Start it with a --- block holding at least name and description.`
@@ -150,7 +168,6 @@ export class ConfigFileInvalid extends Schema.TaggedError<ConfigFileInvalid>()(
     filePath: Schema.String,
     issueMessage: Schema.String,
   },
-  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} is invalid:\n${this.issueMessage}`
@@ -164,7 +181,6 @@ export class ConfigNameMismatch extends Schema.TaggedError<ConfigNameMismatch>()
     declaredName: Schema.String,
     expectedName: Schema.String,
   },
-  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} is named "${this.declaredName}", but its path names it "${this.expectedName}". Make them match.`
@@ -178,23 +194,9 @@ export class ConfigReferenceMissing extends Schema.TaggedError<ConfigReferenceMi
     referenceKind: ReferenceKind,
     referenceName: Schema.String,
   },
-  { httpApiStatus: 422 },
 ) {
   override get message(): string {
     return `${this.filePath} lists ${this.referenceKind} "${this.referenceName}", but ${configFilePathOf[this.referenceKind](this.referenceName)} doesn't exist.`
-  }
-}
-
-export class McpAuthNotSupportedYet extends Schema.TaggedError<McpAuthNotSupportedYet>()(
-  'McpAuthNotSupportedYet',
-  {
-    filePath: Schema.String,
-    mcpName: Schema.String,
-  },
-  { httpApiStatus: 422 },
-) {
-  override get message(): string {
-    return `${this.filePath} lists mcp "${this.mcpName}", which has auth, and pie can't inject MCP auth yet. Drop it from the recipe.`
   }
 }
 
@@ -318,10 +320,27 @@ const loadFrontmatter = Effect.fn('loadFrontmatter')(function* (
 })
 
 const loadAgents = Effect.fn('loadAgents')(function* (configDirectory: string) {
-  const agentNames = yield* listNamesByExtension(configDirectory, 'agents', '.md')
+  const agentNames = yield* listNamesByExtension(configDirectory, 'claude/agents', '.md')
   const entries = yield* Effect.forEach(agentNames, (agentName) =>
     loadFrontmatter(configDirectory, configFilePathOf.agent(agentName), agentName),
   )
+
+  return Record.fromEntries(entries)
+})
+
+const loadSettings = Effect.fn('loadSettings')(function* (configDirectory: string) {
+  const settingsNames = yield* listNamesByExtension(configDirectory, 'claude/settings', '.json')
+  const entries = yield* Effect.forEach(settingsNames, (settingsName) => {
+    const filePath = configFilePathOf.settings(settingsName)
+
+    return readConfigFile(configDirectory, filePath).pipe(
+      Effect.flatMap(Schema.decodeEffect(ClaudeSettingsJson)),
+      Effect.catchTag('SchemaError', (schemaError) =>
+        Effect.fail(new ConfigFileInvalid({ filePath, issueMessage: schemaError.message })),
+      ),
+      Effect.map((claudeSettings) => [settingsName, claudeSettings] as const),
+    )
+  })
 
   return Record.fromEntries(entries)
 })
@@ -351,8 +370,6 @@ const requireReferences = (
     }),
   )
 
-const hasAuth = Schema.is(Schema.Struct({ auth: Schema.String }))
-
 const checkEnvironment = (config: Config, environmentName: string, environment: Environment) =>
   requireReferences(
     configFilePathOf.environment(environmentName),
@@ -374,17 +391,15 @@ const checkRecipe = Effect.fn('checkRecipe')(function* (
     [recipe.environment],
     Record.keys(config.environments),
   )
-  yield* requireReferences(filePath, 'agent', recipe.agents, Record.keys(config.agents))
+  yield* requireReferences(filePath, 'agent', recipe.claude.agents, Record.keys(config.agents))
+  yield* requireReferences(
+    filePath,
+    'settings',
+    Option.toArray(Option.fromUndefinedOr(recipe.claude.settings)),
+    Record.keys(config.settings),
+  )
   yield* requireReferences(filePath, 'skill', recipe.skills, Record.keys(config.skills))
   yield* requireReferences(filePath, 'mcp', recipe.mcp, Record.keys(config.mcpServers))
-  yield* Arr.findFirst(recipe.mcp, (mcpName) =>
-    Option.exists(Record.get(config.mcpServers, mcpName), hasAuth),
-  ).pipe(
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (mcpName) => Effect.fail(new McpAuthNotSupportedYet({ filePath, mcpName })),
-    }),
-  )
 })
 
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
@@ -398,6 +413,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     recipes: yield* loadTomlDirectory(configDirectory, 'recipes', configFilePathOf.recipe, Recipe),
     mcpServers: yield* loadTomlDirectory(configDirectory, 'mcp', configFilePathOf.mcp, McpServer),
     agents: yield* loadAgents(configDirectory),
+    settings: yield* loadSettings(configDirectory),
     skills: yield* loadSkills(configDirectory),
     tasks: yield* listDirectory(configDirectory, 'tasks', 'File', { recursive: true }),
   }

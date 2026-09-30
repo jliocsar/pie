@@ -12,7 +12,6 @@ import {
   ConfigReferenceMissing,
   FrontmatterMissing,
   loadConfig,
-  McpAuthNotSupportedYet,
 } from './Config.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
@@ -21,14 +20,20 @@ tasks = ["workspace", "work/setup-gcloud"]
 [tools]
 node = "24.19.0"
 "github:dmtrKovalenko/fff" = { version = "0.10.6", matching = "fff-mcp", bin = "fff-mcp" }
+
+[env]
+GH_HOST = "github.int.exe.xyz"
 `
 
 const RECIPE_TOML = `label = "Personal"
 environment = "personal"
 repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
-agents = ["oracle"]
 skills = ["handoff"]
 mcp = ["fff"]
+
+[claude]
+agents = ["oracle"]
+settings = "default"
 `
 
 const AGENT_MARKDOWN = `---
@@ -43,8 +48,9 @@ const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
   'environments/personal.toml': ENVIRONMENT_TOML,
   'recipes/personal.toml': RECIPE_TOML,
   'mcp/fff.toml': 'command = "fff-mcp"\n',
-  'mcp/executor.toml': 'url = "https://executor.example/mcp"\nauth = "EXECUTOR_TOKEN"\n',
-  'agents/oracle.md': AGENT_MARKDOWN,
+  'mcp/executor.toml': 'url = "http://executor.int.exe.xyz/mcp"\n',
+  'claude/agents/oracle.md': AGENT_MARKDOWN,
+  'claude/settings/default.json': '{ "model": "opus" }\n',
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite...\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p ~/workspace\n',
   'tasks/work/setup-gcloud': '#!/bin/sh\n',
@@ -82,6 +88,8 @@ describe('loadConfig', () => {
       Effect.gen(function* () {
         const config = yield* loadConfigFrom(VALID_CONFIG_FILES)
 
+        expect(config.environments['personal']?.env).toEqual({ GH_HOST: 'github.int.exe.xyz' })
+        expect(config.settings).toEqual({ default: { model: 'opus' } })
         expect(config.environments['personal']?.tools).toEqual({
           node: { version: '24.19.0' },
           'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
@@ -112,9 +120,9 @@ describe('loadConfig', () => {
           label: 'Personal',
           environment: 'personal',
           repositories: [],
-          agents: [],
           skills: [],
           mcp: [],
+          claude: { agents: [] },
         })
       }),
     ))
@@ -123,7 +131,14 @@ describe('loadConfig', () => {
     {
       description: 'a recipe agent typo',
       overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"oracle"', '"oracel"') },
-      message: 'recipes/personal.toml lists agent "oracel", but agents/oracel.md doesn\'t exist.',
+      message:
+        'recipes/personal.toml lists agent "oracel", but claude/agents/oracel.md doesn\'t exist.',
+    },
+    {
+      description: 'a recipe settings typo',
+      overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"default"', '"defualt"') },
+      message:
+        'recipes/personal.toml lists settings "defualt", but claude/settings/defualt.json doesn\'t exist.',
     },
     {
       description: 'a recipe skill typo',
@@ -165,25 +180,27 @@ describe('loadConfig', () => {
 
   test.each([
     {
-      description: 'a recipe listing an mcp with auth',
-      overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"fff"', '"executor"') },
-      errorClass: McpAuthNotSupportedYet,
-      filePath: 'recipes/personal.toml',
+      description: 'an agent named apart from its file',
+      overrides: {
+        'claude/agents/oracle.md': AGENT_MARKDOWN.replace('name: oracle', 'name: sage'),
+      },
+      errorClass: ConfigNameMismatch,
+      filePath: 'claude/agents/oracle.md',
     },
     {
-      description: 'an agent named apart from its file',
-      overrides: { 'agents/oracle.md': AGENT_MARKDOWN.replace('name: oracle', 'name: sage') },
-      errorClass: ConfigNameMismatch,
-      filePath: 'agents/oracle.md',
+      description: 'settings that are not a JSON object',
+      overrides: { 'claude/settings/default.json': '["opus"]\n' },
+      errorClass: ConfigFileInvalid,
+      filePath: 'claude/settings/default.json',
     },
     {
       description: 'an unknown recipe key',
-      overrides: { 'recipes/personal.toml': `${RECIPE_TOML}agent = ["oracle"]\n` },
+      overrides: { 'recipes/personal.toml': `${RECIPE_TOML}agnets = ["oracle"]\n` },
       errorClass: ConfigFileInvalid,
       filePath: 'recipes/personal.toml',
     },
     {
-      description: 'a task list under [tools]',
+      description: 'a task list under [env]',
       overrides: { 'environments/personal.toml': `${ENVIRONMENT_TOML}tasks = ["workspace"]\n` },
       errorClass: ConfigFileInvalid,
       filePath: 'environments/personal.toml',

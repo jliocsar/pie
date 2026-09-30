@@ -172,6 +172,21 @@ const writeClaudeState = Effect.fn('writeClaudeState')(function* (
   yield* fileSystem.writeFileString(path.join(home, '.claude.json'), claudeState)
 })
 
+const writeOwnClaudeSettings = Effect.fn('writeOwnClaudeSettings')(function* (
+  home: string,
+  claudeSettings: Record.ReadonlyRecord<string, string>,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const settingsPath = path.join(home, '.claude', 'settings.json')
+
+  yield* fileSystem.makeDirectory(path.dirname(settingsPath), { recursive: true })
+  yield* fileSystem.writeFileString(
+    settingsPath,
+    yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(claudeSettings),
+  )
+})
+
 afterAll(() => bunServicesRuntime.dispose())
 
 describe('pie pod up', () => {
@@ -189,6 +204,7 @@ describe('pie pod up', () => {
           const abbreviatedCommit = headCommit.slice(0, 7)
 
           yield* prepareBox(home)
+          yield* writeOwnClaudeSettings(home, { theme: 'dark', model: 'sonnet' })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
@@ -210,7 +226,14 @@ describe('pie pod up', () => {
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
-            'agents/oracle.md': { text: SEED_CONFIG_FILES['agents/oracle.md'], mode: 0o644 },
+            'agents/oracle.md': {
+              text: SEED_CONFIG_FILES['claude/agents/oracle.md'],
+              mode: 0o644,
+            },
+            'settings.json': {
+              text: '{\n  "theme": "dark",\n  "model": "opus",\n  "includeCoAuthoredBy": false\n}\n',
+              mode: 0o644,
+            },
             'skills/handoff/SKILL.md': {
               text: SEED_CONFIG_FILES['skills/handoff/SKILL.md'],
               mode: 0o644,
@@ -222,7 +245,7 @@ describe('pie pod up', () => {
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
           expect(miseConfig).toBe(
-            '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n',
+            '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
           expect(shellStartupFiles).toEqual(
             Arr.replicate('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n', 2),
@@ -248,6 +271,7 @@ describe('pie pod up', () => {
           const ownSkillPath = path.join(claudeDirectory, 'skills', 'mine', 'SKILL.md')
 
           yield* prepareBox(home)
+          yield* writeOwnClaudeSettings(home, { theme: 'dark' })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs', 'mine'])
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
@@ -268,7 +292,10 @@ describe('pie pod up', () => {
           )
           const miseCalls = yield* readMiseCalls(home)
 
-          expect(Record.keys(remainingClaudeFiles)).toEqual(['skills/mine/SKILL.md'])
+          expect(Record.map(remainingClaudeFiles, ({ text }) => text)).toEqual({
+            'settings.json': '{\n  "theme": "dark"\n}\n',
+            'skills/mine/SKILL.md': 'mine',
+          })
           expect(handoffStillThere).toBe(false)
           expect(miseCalls).toEqual([
             ...TOOL_AND_TASK_CALLS,

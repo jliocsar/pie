@@ -15,9 +15,12 @@ export const SEED_CONFIG_FILES = {
   'recipes/personal.toml': `label = "Personal"
 environment = "personal"
 repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
-agents = ["oracle"]
 skills = ["handoff"]
 mcp = ["fff", "docs"]
+
+[claude]
+agents = ["oracle"]
+settings = "default"
 `,
   'environments/personal.toml': `label = "Personal"
 tasks = ["workspace"]
@@ -25,11 +28,16 @@ tasks = ["workspace"]
 [tools]
 node = "24.19.0"
 "github:dmtrKovalenko/fff" = { version = "0.10.6", matching = "fff-mcp", bin = "fff-mcp" }
+
+[env]
+GH_HOST = "github.int.exe.xyz"
 `,
   'mcp/fff.toml': 'command = "fff-mcp"\n',
   'mcp/docs.toml': 'url = "https://docs.example/mcp"\n',
-  'agents/oracle.md': '---\nname: oracle\ndescription: answers questions\n---\nYou answer.\n',
-  'agents/unused.md': '---\nname: unused\ndescription: in no recipe\n---\n',
+  'claude/agents/oracle.md':
+    '---\nname: oracle\ndescription: answers questions\n---\nYou answer.\n',
+  'claude/agents/unused.md': '---\nname: unused\ndescription: in no recipe\n---\n',
+  'claude/settings/default.json': '{ "model": "opus", "includeCoAuthoredBy": false }\n',
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite.\n',
   'skills/handoff/scripts/greet': '#!/bin/sh\necho hi\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p "$HOME/workspace"\n',
