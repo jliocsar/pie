@@ -15,8 +15,16 @@ pie check [dir]             # validate a config checkout
 pie sync [dir]              # rewrite .pie/schema from the names on disk
 ```
 
-A config repo gates pushes with `[tasks.pre-push] run = "pie check"` in its `mise.toml`. Turn the
-hook on once per clone:
+A config repo gates pushes with a task in its `mise.toml`. The `usage` line takes the arguments git
+passes the hook, which mise would otherwise append to `pie check`:
+
+```toml
+[tasks.pre-push]
+usage = 'arg "[git_arguments]" var=#true'
+run = "pie check"
+```
+
+Turn the hook on once per clone:
 
 ```sh
 mise generate git-pre-commit --write --hook pre-push --task pre-push
