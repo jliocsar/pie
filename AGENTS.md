@@ -352,11 +352,11 @@ Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: that dir
 runs gets stdin closed, because under `curl | sh` stdin is the script itself.
 
 The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and
-every later command goes through `mise exec`. A new shell finds the tools through mise's shims
-directory, which `pod up` adds to `~/.profile` and to `~/.zshrc`, since zsh never reads
-`~/.profile`. Shims also reach processes that never read a shell rc, such as an MCP server Claude
-spawns. An environment's `[env]` reaches only what runs through a shim or `mise exec`, never the
-shell itself: a login zsh on a pod had no `GH_HOST`, and node started from it did (measured). Tasks run from a
+every later command goes through `mise exec`. `pod up` adds mise's shims directory to `~/.profile`.
+zsh never reads `~/.profile`, so `~/.zshrc` gets `mise activate` instead. That puts the tools, the
+`mise` command and the environment's `[env]` in the shell itself. Shims carry `[env]` only into
+what runs through them: with shims alone, a login zsh had no `GH_HOST`, and node started from it did
+(measured). Tasks run from a
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 

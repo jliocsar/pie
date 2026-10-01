@@ -38,6 +38,8 @@ const MISE_INSTALLER_URL = 'https://mise.run'
 
 const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
 
+const MISE_ZSH_ACTIVATE_LINE = 'eval "$($HOME/.local/bin/mise activate zsh)"'
+
 const EXECUTABLE_MODE_BITS = 0o111
 
 const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
@@ -172,7 +174,10 @@ const podPaths = Effect.gen(function* () {
     manifestPath: path.join(configDirectory, 'pie', 'manifest.json'),
     misePath: path.join(home, '.local', 'bin', 'mise'),
     miseConfigPath: path.join(configDirectory, 'mise', 'conf.d', 'pie.toml'),
-    shellStartupPaths: [path.join(home, '.profile'), path.join(home, '.zshrc')],
+    shellStartupLines: [
+      [path.join(home, '.profile'), MISE_SHIMS_PATH_LINE],
+      [path.join(home, '.zshrc'), MISE_ZSH_ACTIVATE_LINE],
+    ] as const,
     workspaceDirectory: path.join(home, 'workspace'),
   }
 })
@@ -730,8 +735,8 @@ const installTools = Effect.fn('installTools')(function* (paths: PodPaths, podCo
     REGULAR_FILE_MODE,
   )
   yield* runMise(paths, ['install'])
-  yield* Effect.forEach(paths.shellStartupPaths, (startupFilePath) =>
-    addLineToShellStartupFile(startupFilePath, MISE_SHIMS_PATH_LINE),
+  yield* Effect.forEach(paths.shellStartupLines, ([startupFilePath, startupLine]) =>
+    addLineToShellStartupFile(startupFilePath, startupLine),
   )
 })
 

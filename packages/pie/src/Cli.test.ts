@@ -247,9 +247,10 @@ describe('pie pod up', () => {
           expect(miseConfig).toBe(
             '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
-          expect(shellStartupFiles).toEqual(
-            Arr.replicate('\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n', 2),
-          )
+          expect(shellStartupFiles).toEqual([
+            '\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n',
+            '\neval "$($HOME/.local/bin/mise activate zsh)"\n',
+          ])
           expect(secondSnapshot).toEqual(firstSnapshot)
           expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
           expect(output.stdout).toEqual(
