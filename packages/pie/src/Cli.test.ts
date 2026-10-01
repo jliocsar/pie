@@ -13,7 +13,8 @@ import * as Schema from 'effect/Schema'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
-import { configFilePathOf, type TomlKind } from './Config.ts'
+import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
+import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './Config.ts'
 import { ClaudeEntryNotPies, McpServerNotPies, RepositoryUnreachable, runGit } from './Pod.ts'
 import { RecipeTagMissing, RecipeTagsConflict, REFLECTION_TAGS_URL } from './Reflection.ts'
 import {
@@ -415,7 +416,7 @@ describe('pie pod up', () => {
 })
 
 describe('pie sync and pie check', () => {
-  test('sync writes the names on disk into the schemas', () =>
+  test('sync writes the names on disk into the schemas, and check accepts the result', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
@@ -423,6 +424,7 @@ describe('pie sync and pie check', () => {
           const { output, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
 
           yield* runPieOn('laptop', ['sync', sourceDirectory])
+          yield* runPieOn('laptop', ['check', sourceDirectory])
 
           const recipeDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'recipe')
           const environmentDefinitions = yield* readSchemaDefinitions(
@@ -440,8 +442,53 @@ describe('pie sync and pie check', () => {
           })
           expect(environmentDefinitions).toEqual({ task: { type: 'string', enum: ['workspace'] } })
           expect(mcpDefinitions).toEqual({})
-          expect(output.stdout).toEqual([`Synced ${path.join(sourceDirectory, '.pie/schema')}.`])
+          expect(output.stdout).toEqual([
+            `Synced ${path.join(sourceDirectory, '.pie/schema')}.`,
+            'Config is valid.',
+          ])
         }),
       ),
     ))
+
+  test.each([
+    {
+      description: 'a TOML file without its #:schema line',
+      overrides: { 'mcp/fff.toml': 'command = "fff-mcp"\n' },
+      errorClass: SchemaLineMissing,
+      filePath: 'mcp/fff.toml',
+    },
+    {
+      description: 'a skill added without a sync',
+      overrides: { 'skills/review/SKILL.md': '---\nname: review\ndescription: reviews\n---\n' },
+      errorClass: SchemaFileStale,
+      filePath: '.pie/schema/recipe.json',
+    },
+    {
+      description: "a recipe listing a skill that doesn't exist",
+      overrides: {
+        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+          '"handoff"',
+          '"handof"',
+        ),
+      },
+      errorClass: ConfigReferenceMissing,
+      filePath: 'recipes/personal.toml',
+    },
+  ])('check refuses $description, naming the file', ({ overrides, errorClass, filePath }) =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* runPieOn('laptop', ['sync', sourceDirectory])
+          yield* commitToConfigSource(sourceDirectory, overrides, [])
+
+          const error = yield* Effect.flip(runPieOn('laptop', ['check', sourceDirectory]))
+
+          expect(error).toBeInstanceOf(errorClass)
+          expect(error.message).toStartWith(filePath)
+        }),
+      ),
+    ),
+  )
 })

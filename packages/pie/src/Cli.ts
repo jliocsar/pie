@@ -1,5 +1,6 @@
 import * as Command from 'effect/unstable/cli/Command'
+import { check } from './commands/Check.ts'
 import { pod } from './commands/Pod.ts'
 import { sync } from './commands/Sync.ts'
 
-export const pie = Command.make('pie').pipe(Command.withSubcommands([pod, sync]))
+export const pie = Command.make('pie').pipe(Command.withSubcommands([pod, check, sync]))
