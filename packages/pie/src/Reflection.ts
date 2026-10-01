@@ -6,6 +6,8 @@ import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 
+export const POD_TAG = 'pie'
+
 export const RECIPE_TAG_PREFIX = 'pie-recipe-'
 
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })

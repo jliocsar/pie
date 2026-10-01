@@ -311,7 +311,9 @@ and stdin closed, so a missing integration fails instead of waiting for a passwo
 
 Every clone goes through exe.dev's GitHub integration host: the config repo and each recipe
 repository. The host authenticates by the VM's tags, so no credential lives on the box.
-`PIE_GITHUB_URL` replaces the host, which is how the tests point pie at local bare repos.
+`PIE_GITHUB_URL` replaces the host, which is how the tests point pie at local bare repos. A clone
+or fetch that fails names the repo and the tag its integration attaches to: `pie` for the config
+repo, the recipe's tag for the rest.
 
 ## The setup script
 

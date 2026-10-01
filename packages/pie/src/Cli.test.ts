@@ -13,7 +13,7 @@ import * as Schema from 'effect/Schema'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
-import { ClaudeEntryNotPies, McpServerNotPies, runGit } from './Pod.ts'
+import { ClaudeEntryNotPies, McpServerNotPies, RepositoryUnreachable, runGit } from './Pod.ts'
 import { RecipeTagMissing, RecipeTagsConflict, REFLECTION_TAGS_URL } from './Reflection.ts'
 import {
   commitToConfigSource,
@@ -362,6 +362,35 @@ describe('pie pod up', () => {
           expect(doubleTagged).toEqual(
             new RecipeTagsConflict({ recipeTags: ['pie-recipe-a', 'pie-recipe-b'] }),
           )
+        }),
+      ),
+    ))
+
+  test('a repository pie cannot clone fails, naming the tag its integration attaches to', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('pod'))
+          yield* fileSystem.remove(path.join(homeOf('pod'), 'workspace', 'jliocsar', 'pie'), {
+            recursive: true,
+          })
+
+          const configRepositoryFailure = yield* Effect.flip(
+            runPieOn('pod', ['pod', 'up', 'jliocsar/missing']),
+          )
+          const recipeRepositoryFailure = yield* Effect.flip(
+            runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY]),
+          )
+
+          expect([configRepositoryFailure, recipeRepositoryFailure]).toMatchObject([
+            { repositoryName: 'jliocsar/missing', integrationTag: 'pie' },
+            { repositoryName: 'jliocsar/pie', integrationTag: 'pie-recipe-personal' },
+          ])
+          expect(recipeRepositoryFailure).toBeInstanceOf(RepositoryUnreachable)
         }),
       ),
     ))
