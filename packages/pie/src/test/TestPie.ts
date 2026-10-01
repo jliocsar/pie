@@ -12,7 +12,8 @@ const REGULAR_FILE_MODE = 0o644
 const EXECUTABLE_FILE_MODE = 0o755
 
 export const SEED_CONFIG_FILES = {
-  'recipes/personal.toml': `label = "Personal"
+  'recipes/personal.toml': `#:schema ../.pie/schema/recipe.json
+label = "Personal"
 environment = "personal"
 repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
 skills = ["handoff"]
@@ -22,7 +23,8 @@ mcp = ["fff", "docs"]
 agents = ["oracle"]
 settings = "default"
 `,
-  'environments/personal.toml': `label = "Personal"
+  'environments/personal.toml': `#:schema ../.pie/schema/environment.json
+label = "Personal"
 tasks = ["workspace"]
 
 [tools]
@@ -32,8 +34,8 @@ node = "24.19.0"
 [env]
 GH_HOST = "github.int.exe.xyz"
 `,
-  'mcp/fff.toml': 'command = "fff-mcp"\n',
-  'mcp/docs.toml': 'url = "https://docs.example/mcp"\n',
+  'mcp/fff.toml': '#:schema ../.pie/schema/mcp.json\ncommand = "fff-mcp"\n',
+  'mcp/docs.toml': '#:schema ../.pie/schema/mcp.json\nurl = "https://docs.example/mcp"\n',
   'claude/agents/oracle.md':
     '---\nname: oracle\ndescription: answers questions\n---\nYou answer.\n',
   'claude/agents/unused.md': '---\nname: unused\ndescription: in no recipe\n---\n',

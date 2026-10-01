@@ -13,6 +13,7 @@ import * as Schema from 'effect/Schema'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
+import { configFilePathOf, type TomlKind } from './Config.ts'
 import { ClaudeEntryNotPies, McpServerNotPies, RepositoryUnreachable, runGit } from './Pod.ts'
 import { RecipeTagMissing, RecipeTagsConflict, REFLECTION_TAGS_URL } from './Reflection.ts'
 import {
@@ -185,6 +186,22 @@ const writeOwnClaudeSettings = Effect.fn('writeOwnClaudeSettings')(function* (
     settingsPath,
     yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(claudeSettings),
   )
+})
+
+const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
+  configDirectory: string,
+  tomlKind: TomlKind,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const schemaText = yield* fileSystem.readFileString(
+    path.join(configDirectory, configFilePathOf.schema(tomlKind)),
+  )
+  const { $defs } = yield* Schema.decodeEffect(
+    Schema.fromJsonString(Schema.Struct({ $defs: Schema.Unknown })),
+  )(schemaText)
+
+  return $defs
 })
 
 afterAll(() => bunServicesRuntime.dispose())
@@ -392,6 +409,38 @@ describe('pie pod up', () => {
             { repositoryName: 'jliocsar/pie', integrationTag: 'pie-recipe-personal' },
           ])
           expect(recipeRepositoryFailure).toBeInstanceOf(RepositoryUnreachable)
+        }),
+      ),
+    ))
+})
+
+describe('pie sync and pie check', () => {
+  test('sync writes the names on disk into the schemas', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          const { output, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* runPieOn('laptop', ['sync', sourceDirectory])
+
+          const recipeDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'recipe')
+          const environmentDefinitions = yield* readSchemaDefinitions(
+            sourceDirectory,
+            'environment',
+          )
+          const mcpDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'mcp')
+
+          expect(recipeDefinitions).toEqual({
+            environment: { type: 'string', enum: ['personal'] },
+            agent: { type: 'string', enum: ['oracle', 'unused'] },
+            settings: { type: 'string', enum: ['default'] },
+            skill: { type: 'string', enum: ['handoff'] },
+            mcp: { type: 'string', enum: ['docs', 'fff'] },
+          })
+          expect(environmentDefinitions).toEqual({ task: { type: 'string', enum: ['workspace'] } })
+          expect(mcpDefinitions).toEqual({})
+          expect(output.stdout).toEqual([`Synced ${path.join(sourceDirectory, '.pie/schema')}.`])
         }),
       ),
     ))
