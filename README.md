@@ -9,6 +9,19 @@ curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | s
 
 Without `<org>/<repo>` the line only installs `pie`.
 
+```sh
+pie pod up [<org>/<repo>]   # on a pod: apply its recipe
+pie check [dir]             # validate a config checkout
+pie sync [dir]              # rewrite .pie/schema from the names on disk
+```
+
+A config repo gates pushes with `[tasks.pre-push] run = "pie check"` in its `mise.toml`. Turn the
+hook on once per clone:
+
+```sh
+mise generate git-pre-commit --write --hook pre-push --task pre-push
+```
+
 Pushing a `v*` tag builds `pie-linux-x64` and `pie-linux-arm64` and attaches them and `setup.sh` to
 the release.
 
