@@ -12,6 +12,7 @@ import {
   ConfigReferenceMissing,
   FrontmatterMissing,
   loadConfig,
+  RecipeNameNotTaggable,
 } from './Config.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
@@ -218,6 +219,12 @@ describe('loadConfig', () => {
       overrides: { 'mcp/fff.toml': 'command =\n' },
       errorClass: ConfigFileUnparseable,
       filePath: 'mcp/fff.toml',
+    },
+    {
+      description: 'a recipe name no exe.dev tag can hold',
+      overrides: { 'recipes/Work.toml': RECIPE_TOML },
+      errorClass: RecipeNameNotTaggable,
+      filePath: 'recipes/Work.toml',
     },
     {
       description: 'a skill without frontmatter',
