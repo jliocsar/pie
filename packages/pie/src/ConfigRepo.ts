@@ -8,6 +8,7 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
+import { isValidTag, RECIPE_TAG_PREFIX } from './ExeDev.ts'
 
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
@@ -16,8 +17,6 @@ const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const TOML_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
-
-const TAGGABLE_RECIPE_NAME_PATTERN = /^[a-z0-9_-]+$/u
 
 export const SCHEMA_DIRECTORY = '.pie/schema'
 
@@ -224,7 +223,7 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
   },
 ) {
   override get message(): string {
-    return `${configFilePathOf.recipe(this.recipeName)} can't name a recipe, since pie-recipe-${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
+    return `${configFilePathOf.recipe(this.recipeName)} can't name a recipe, since ${RECIPE_TAG_PREFIX}${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
   }
 }
 
@@ -409,7 +408,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
   const filePath = configFilePathOf.recipe(recipeName)
 
   yield* Effect.fail(new RecipeNameNotTaggable({ recipeName })).pipe(
-    Effect.when(Effect.succeed(!TAGGABLE_RECIPE_NAME_PATTERN.test(recipeName))),
+    Effect.when(Effect.succeed(!isValidTag(`${RECIPE_TAG_PREFIX}${recipeName}`))),
   )
 
   const environment = yield* lookUpReference(

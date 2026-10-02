@@ -1,8 +1,13 @@
 import * as Arr from 'effect/Array'
+import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
+
+const TAG_PATTERN = /^[a-z0-9_-]+$/u
+
+const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
 
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 
@@ -11,6 +16,12 @@ export const POD_TAG = 'pie'
 export const RECIPE_TAG_PREFIX = 'pie-recipe-'
 
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
+
+export const githubUrl = Config.String('PIE_GITHUB_URL').pipe(
+  Config.withDefault(DEFAULT_GITHUB_URL),
+)
+
+export const isValidTag = (tag: string) => TAG_PATTERN.test(tag)
 
 const listOf = (names: readonly string[]) =>
   Arr.isReadonlyArrayNonEmpty(names) ? names.join(', ') : 'none'
@@ -38,6 +49,15 @@ export class RecipeTagsConflict extends Schema.TaggedError<RecipeTagsConflict>()
 ) {
   override get message(): string {
     return `This VM has more than one recipe tag: ${listOf(this.recipeTags)}. Keep one, removing the others with \`ssh exe.dev tag -d <vm> <tag>\`.`
+  }
+}
+
+export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreachable>()(
+  'RepositoryUnreachable',
+  { repositoryName: Schema.String, integrationTag: Schema.String, gitOutput: Schema.String },
+) {
+  override get message(): string {
+    return `pie couldn't reach ${this.repositoryName} through exe.dev's GitHub integration. In exe.dev, attach a GitHub integration that reaches it to tag:${this.integrationTag}. git said: ${this.gitOutput.trim()}`
   }
 }
 

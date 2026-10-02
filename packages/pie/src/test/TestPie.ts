@@ -3,7 +3,7 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
-import { runGit } from '../Pod.ts'
+import { runGit } from '../Git.ts'
 
 export const CONFIG_REPOSITORY = 'jliocsar/agents-machines'
 
