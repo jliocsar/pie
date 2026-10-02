@@ -26,12 +26,6 @@ shell.
   installs the tools, the home sets land in `~`, mise runs the tasks, missing repos are cloned into
   `~/workspace`, and Claude's agents, settings, skills and MCPs are written. Re-running it is how a
   pod picks up new config.
-- Dotfiles live in home sets: `home/<name>/` in the config repo, mirroring `~`. A recipe's `home`
-  list names them. A bare name copies the files, and pie owns them whole.
-  `{ name = "<name>", mode = "append" }` adds a marked block to the file instead, leaving the rest of
-  it alone. `.zshrc` and `.profile` can only be appended to, and paths pie writes itself, like
-  `.claude/` and `.config/mise/`, are rejected. Claude config goes through the recipe, never a home
-  set.
 - Secrets never live on a pod. exe.dev integrations add them at the network edge. The config repo's
   integration attaches to the `pie` tag, and a recipe's own integrations attach to its
   `pie-recipe-<name>` tag.
@@ -39,6 +33,24 @@ shell.
   the user's job: tell them exactly which one to make and which tag it attaches to.
 - pie's errors name what's missing, such as the integration a clone needs and its tag. Read them
   before debugging anything else.
+
+## Dotfiles
+
+`home/<name>/` in the config repo mirrors `~`: `home/shell/.config/starship.toml` lands on
+`~/.config/starship.toml`. A recipe's `home` list picks the sets:
+
+```toml
+home = ["shell", { name = "zsh", mode = "append" }]
+```
+
+- A bare name copies. pie owns the whole file, and fails if one it didn't write is already there.
+- `mode = "append"` keeps the file and replaces only pie's `# >>> pie: home/<name> >>>` block. Use it
+  for files a fresh VM already has, and always for `.zshrc` and `.profile`.
+- Dropping a file or a set removes it on the next `pod up`.
+- Paths pie writes itself (`.claude/`, `.config/mise/`, `workspace/`...) can't go in a set. Claude
+  config goes through the recipe.
+
+Run `pie sync` after adding a set, then `pie check`, which names any rule a set breaks.
 
 ## From the laptop
 
