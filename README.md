@@ -72,6 +72,7 @@ breaks the spacing rules judge.
 packages/           workspace members; packages/tsconfig holds the shared TS base
 .oxlintrc.json      every rule, commented where the behaviour is surprising
 AGENTS.md           conventions, invariants and measured facts (CLAUDE.md symlinks to it)
+skills/pie/         teaches an agent on the laptop how pie works and how to bootstrap a pod
 ```
 
 Every member with source needs a `test` script: the gate runs
