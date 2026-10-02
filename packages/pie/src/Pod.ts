@@ -13,13 +13,11 @@ import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawne
 import {
   ClaudeSettings,
   configFilePathOf,
-  ConfigReferenceMissing,
   type Environment,
   HttpMcpServer,
   listDirectory,
   loadConfig,
   type McpServer,
-  type ReferenceKind,
   type ToolRequest,
 } from './Config.ts'
 import { POD_TAG, RECIPE_TAG_PREFIX, recipeNameOfThisVm } from './Reflection.ts'
@@ -389,24 +387,6 @@ const claudeMcpServerOf = (mcpServer: McpServer): ClaudeMcpServer =>
     ? { type: 'http', url: mcpServer.url }
     : { type: 'stdio', command: mcpServer.command, args: mcpServer.args }
 
-const lookUpRecipeReference = <Value>(
-  recipeName: string,
-  referenceKind: ReferenceKind,
-  entries: Record.ReadonlyRecord<string, Value>,
-  referenceName: string,
-): Effect.Effect<Value, ConfigReferenceMissing> =>
-  Option.match(Record.get(entries, referenceName), {
-    onNone: () =>
-      Effect.fail(
-        new ConfigReferenceMissing({
-          filePath: configFilePathOf.recipe(recipeName),
-          referenceKind,
-          referenceName,
-        }),
-      ),
-    onSome: Effect.succeed,
-  })
-
 const readPodFile = Effect.fn('readPodFile')(function* (
   configDirectory: string,
   filePath: string,
@@ -449,42 +429,25 @@ const podConfigOf = Effect.fn('podConfigOf')(function* (
     onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
     onSome: Effect.succeed,
   })
-  const environment = yield* lookUpRecipeReference(
-    recipeName,
-    'environment',
-    config.environments,
-    recipe.environment,
-  )
-  const mcpServerEntries = yield* Effect.forEach(recipe.mcp, (mcpName) =>
-    lookUpRecipeReference(recipeName, 'mcp', config.mcpServers, mcpName).pipe(
-      Effect.map((mcpServer) => [mcpName, claudeMcpServerOf(mcpServer)] as const),
-    ),
-  )
   const agentFiles = yield* Effect.forEach(recipe.claude.agents, (agentName) =>
     readPodFile(configDirectory, configFilePathOf.agent(agentName), `agents/${agentName}.md`),
-  )
-  const claudeSettings = Option.getOrElse(
-    Option.flatMap(Option.fromUndefinedOr(recipe.claude.settings), (settingsName) =>
-      Record.get(config.settings, settingsName),
-    ),
-    () => ({}),
   )
   const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
     readSkillFiles(configDirectory, skillName),
   )
-  const tasks = yield* Effect.forEach(environment.tasks, (taskName) =>
+  const tasks = yield* Effect.forEach(recipe.environment.tasks, (taskName) =>
     readPodFile(configDirectory, configFilePathOf.task(taskName), taskName),
   )
 
   return {
     recipeName,
     commit,
-    miseConfig: miseConfigOf(environment),
+    miseConfig: miseConfigOf(recipe.environment),
     tasks,
     repositories: recipe.repositories,
     claudeFiles: [...agentFiles, ...Arr.flatten(skillFiles)],
-    claudeSettings,
-    mcpServers: Record.fromEntries(mcpServerEntries),
+    claudeSettings: recipe.claude.settings,
+    mcpServers: Record.map(recipe.mcp, claudeMcpServerOf),
   }
 })
 

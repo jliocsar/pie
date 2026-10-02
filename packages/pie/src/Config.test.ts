@@ -117,13 +117,11 @@ describe('loadConfig', () => {
           'recipes/personal.toml': 'label = "Personal"\nenvironment = "personal"\n',
         })
 
-        expect(config.recipes['personal']).toEqual({
-          label: 'Personal',
-          environment: 'personal',
+        expect(config.recipes['personal']).toMatchObject({
           repositories: [],
           skills: [],
-          mcp: [],
-          claude: { agents: [] },
+          mcp: {},
+          claude: { agents: [], settings: {} },
         })
       }),
     ))

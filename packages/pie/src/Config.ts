@@ -130,7 +130,7 @@ export type ClaudeSettings = typeof ClaudeSettings.Type
 
 const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings)
 
-export const Config = Schema.Struct({
+const Config = Schema.Struct({
   environments: Schema.Record(Schema.String, Environment),
   recipes: Schema.Record(Schema.String, Recipe),
   mcpServers: Schema.Record(Schema.String, McpServer),
@@ -140,7 +140,7 @@ export const Config = Schema.Struct({
   tasks: Schema.Array(Schema.String),
 })
 
-export type Config = typeof Config.Type
+type Config = typeof Config.Type
 
 const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
 
@@ -403,29 +403,31 @@ const loadSettings = (configDirectory: string, settingsNames: readonly string[])
     )
   }).pipe(Effect.map(Record.fromEntries))
 
-const requireReferences = (
-  filePath: string,
-  referenceKind: ReferenceKind,
-  referenceNames: readonly string[],
-  knownNames: readonly string[],
-) =>
-  Arr.findFirst(referenceNames, (referenceName) => !Arr.contains(knownNames, referenceName)).pipe(
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (referenceName) =>
+const lookUpReference =
+  <Value>(
+    filePath: string,
+    referenceKind: ReferenceKind,
+    entries: Record.ReadonlyRecord<string, Value>,
+  ) =>
+  (referenceName: string) =>
+    Option.match(Record.get(entries, referenceName), {
+      onNone: () =>
         Effect.fail(new ConfigReferenceMissing({ filePath, referenceKind, referenceName })),
-    }),
-  )
+      onSome: Effect.succeed,
+    })
 
 const checkEnvironment = (config: Config, environmentName: string, environment: Environment) =>
-  requireReferences(
-    configFilePathOf.environment(environmentName),
-    'task',
+  Effect.forEach(
     environment.tasks,
-    config.tasks,
+    lookUpReference(
+      configFilePathOf.environment(environmentName),
+      'task',
+      Record.fromIterableWith(config.tasks, (taskName) => [taskName, taskName]),
+    ),
+    { discard: true },
   )
 
-const checkRecipe = Effect.fn('checkRecipe')(function* (
+const resolveRecipe = Effect.fn('resolveRecipe')(function* (
   config: Config,
   recipeName: string,
   recipe: Recipe,
@@ -435,22 +437,42 @@ const checkRecipe = Effect.fn('checkRecipe')(function* (
   yield* Effect.fail(new RecipeNameNotTaggable({ recipeName })).pipe(
     Effect.when(Effect.succeed(!TAGGABLE_RECIPE_NAME_PATTERN.test(recipeName))),
   )
-  yield* requireReferences(
+
+  const environment = yield* lookUpReference(
     filePath,
     'environment',
-    [recipe.environment],
-    Record.keys(config.environments),
+    config.environments,
+  )(recipe.environment)
+
+  yield* Effect.forEach(recipe.claude.agents, lookUpReference(filePath, 'agent', config.agents), {
+    discard: true,
+  })
+
+  const claudeSettings = yield* Option.match(Option.fromUndefinedOr(recipe.claude.settings), {
+    onNone: () => Effect.succeed<ClaudeSettings>({}),
+    onSome: lookUpReference(filePath, 'settings', config.settings),
+  })
+
+  yield* Effect.forEach(recipe.skills, lookUpReference(filePath, 'skill', config.skills), {
+    discard: true,
+  })
+
+  const mcpServers = yield* Effect.all(
+    Record.fromIterableWith(recipe.mcp, (mcpName) => [
+      mcpName,
+      lookUpReference(filePath, 'mcp', config.mcpServers)(mcpName),
+    ]),
   )
-  yield* requireReferences(filePath, 'agent', recipe.claude.agents, Record.keys(config.agents))
-  yield* requireReferences(
-    filePath,
-    'settings',
-    Option.toArray(Option.fromUndefinedOr(recipe.claude.settings)),
-    Record.keys(config.settings),
-  )
-  yield* requireReferences(filePath, 'skill', recipe.skills, Record.keys(config.skills))
-  yield* requireReferences(filePath, 'mcp', recipe.mcp, Record.keys(config.mcpServers))
+
+  return {
+    ...recipe,
+    environment,
+    mcp: mcpServers,
+    claude: { agents: recipe.claude.agents, settings: claudeSettings },
+  }
 })
+
+export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
@@ -480,11 +502,9 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     ([environmentName, environment]) => checkEnvironment(config, environmentName, environment),
     { discard: true },
   )
-  yield* Effect.forEach(
-    Record.toEntries(config.recipes),
-    ([recipeName, recipe]) => checkRecipe(config, recipeName, recipe),
-    { discard: true },
+  const recipes = yield* Effect.all(
+    Record.map(config.recipes, (recipe, recipeName) => resolveRecipe(config, recipeName, recipe)),
   )
 
-  return config
+  return { ...config, recipes }
 })
