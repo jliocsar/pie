@@ -6,7 +6,7 @@ description: How pie works from the laptop, and how to bootstrap new exe.dev mac
 # pie
 
 pie is a recipe manager for exe.dev VMs. A recipe says what a pod gets: pinned tools, tasks,
-repositories, Claude agents and settings, skills and MCPs. Recipes are TOML in a config repo, which
+repositories, dotfiles, Claude agents and settings, skills and MCPs. Recipes are TOML in a config repo, which
 is `jliocsar/agents-machines` unless the user says otherwise. There's no server: each pod pulls its
 own config.
 
@@ -23,8 +23,15 @@ shell.
   config repo.
 - `pie pod up` runs on the pod. It reads the VM's tags through exe.dev's reflection integration,
   fetches the config repo through exe.dev's GitHub integration, and applies the recipe: mise
-  installs the tools and runs the tasks, missing repos are cloned into `~/workspace`, and Claude's
-  agents, settings, skills and MCPs are written. Re-running it is how a pod picks up new config.
+  installs the tools, the home sets land in `~`, mise runs the tasks, missing repos are cloned into
+  `~/workspace`, and Claude's agents, settings, skills and MCPs are written. Re-running it is how a
+  pod picks up new config.
+- Dotfiles live in home sets: `home/<name>/` in the config repo, mirroring `~`. A recipe's `home`
+  list names them. A bare name copies the files, and pie owns them whole.
+  `{ name = "<name>", mode = "append" }` adds a marked block to the file instead, leaving the rest of
+  it alone. `.zshrc` and `.profile` can only be appended to, and paths pie writes itself, like
+  `.claude/` and `.config/mise/`, are rejected. Claude config goes through the recipe, never a home
+  set.
 - Secrets never live on a pod. exe.dev integrations add them at the network edge. The config repo's
   integration attaches to the `pie` tag, and a recipe's own integrations attach to its
   `pie-recipe-<name>` tag.

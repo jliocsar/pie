@@ -11,6 +11,9 @@ import {
   ConfigNameMismatch,
   ConfigReferenceMissing,
   FrontmatterMissing,
+  HomeFileAppendOnly,
+  HomePathPieOwned,
+  HomePathsOverlap,
   loadConfig,
   RecipeNameNotTaggable,
 } from './ConfigRepo.ts'
@@ -31,6 +34,7 @@ environment = "personal"
 repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
 skills = ["handoff"]
 mcp = ["fff"]
+home = ["shell", { name = "zsh", mode = "append" }]
 
 [claude]
 agents = ["oracle"]
@@ -55,6 +59,8 @@ const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite...\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p ~/workspace\n',
   'tasks/work/setup-gcloud': '#!/bin/sh\n',
+  'home/shell/.config/starship.toml': 'add_newline = false\n',
+  'home/zsh/.zshrc': "alias ll='ls -l'\n",
 }
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
@@ -99,6 +105,15 @@ describe('loadConfig', () => {
           { repo: 'jliocsar/pie', dir: 'jliocsar/pie' },
           { repo: 'jliocsar/nidus', dir: 'nidus' },
         ])
+        expect(config.recipes['personal']?.home).toEqual([
+          {
+            homeName: 'shell',
+            mode: 'copy',
+            sourcePath: 'home/shell/.config/starship.toml',
+            homePath: '.config/starship.toml',
+          },
+          { homeName: 'zsh', mode: 'append', sourcePath: 'home/zsh/.zshrc', homePath: '.zshrc' },
+        ])
         expect(config.mcpServers['fff']).toEqual({ command: 'fff-mcp', args: [] })
         expect(config.agents['oracle']).toEqual({
           name: 'oracle',
@@ -121,6 +136,7 @@ describe('loadConfig', () => {
           repositories: [],
           skills: [],
           mcp: {},
+          home: [],
           claude: { agents: [], settings: {} },
         })
       }),
@@ -149,6 +165,11 @@ describe('loadConfig', () => {
       description: 'a recipe mcp typo',
       overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"fff"', '"ff"') },
       message: 'recipes/personal.toml lists mcp "ff", but mcp/ff.toml doesn\'t exist.',
+    },
+    {
+      description: 'a recipe home typo',
+      overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"shell"', '"shel"') },
+      message: 'recipes/personal.toml lists home "shel", but home/shel doesn\'t exist.',
     },
     {
       description: 'a recipe environment typo',
@@ -229,6 +250,26 @@ describe('loadConfig', () => {
       overrides: { 'skills/handoff/SKILL.md': 'Write...\n' },
       errorClass: FrontmatterMissing,
       filePath: 'skills/handoff/SKILL.md',
+    },
+    {
+      description: 'a home set shipping a path pie writes itself',
+      overrides: { 'home/shell/.claude/settings.json': '{}\n' },
+      errorClass: HomePathPieOwned,
+      filePath: 'home/shell/.claude/settings.json',
+    },
+    {
+      description: 'a .zshrc copied instead of appended',
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace('{ name = "zsh", mode = "append" }', '"zsh"'),
+      },
+      errorClass: HomeFileAppendOnly,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: 'a copied home file another set also writes',
+      overrides: { 'home/zsh/.config/starship.toml': 'format = "$all"\n' },
+      errorClass: HomePathsOverlap,
+      filePath: 'recipes/personal.toml',
     },
   ])('$description fails naming the file', ({ overrides, errorClass, filePath }) =>
     bunServicesRuntime.runPromise(

@@ -16,12 +16,13 @@ import {
 import { runMise } from './Mise.ts'
 import {
   configHome,
+  decodeJsonFile,
   EXECUTABLE_FILE_MODE,
   homeDirectory,
-  PRIVATE_DIRECTORY_MODE,
   readPodFile,
   REGULAR_FILE_MODE,
   writeFileIfChanged,
+  writeManifest,
 } from './Pod.ts'
 
 const CLAUDE_ENTRY_SEGMENT_COUNT = 2
@@ -57,6 +58,8 @@ const ClaudeStateJson = Schema.fromJsonString(
   }),
 )
 
+const writeClaudeManifest = writeManifest(ManifestJson)
+
 const isSameMcpServer = Schema.toEquivalence(ClaudeMcpServer)
 
 const isHttpMcpServer = Schema.is(HttpMcpServer)
@@ -78,15 +81,6 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
   }
 }
 
-export class PodFileUnreadable extends Schema.TaggedError<PodFileUnreadable>()(
-  'PodFileUnreadable',
-  { filePath: Schema.String, issueMessage: Schema.String },
-) {
-  override get message(): string {
-    return `${this.filePath} isn't the JSON pie expected: ${this.issueMessage}`
-  }
-}
-
 const claudePaths = Effect.gen(function* () {
   const path = yield* Path.Path
   const home = yield* homeDirectory
@@ -97,46 +91,6 @@ const claudePaths = Effect.gen(function* () {
     statePath: path.join(home, '.claude.json'),
     manifestPath: path.join(yield* configHome, 'pie', 'manifest.json'),
   }
-})
-
-const decodeJsonFile = <Decoded>(schema: Schema.Codec<Decoded, string>) =>
-  Effect.fn('decodeJsonFile')(function* (filePath: string, fallback: Decoded) {
-    const fileSystem = yield* FileSystem.FileSystem
-
-    if (!(yield* fileSystem.exists(filePath))) {
-      return fallback
-    }
-
-    return yield* fileSystem.readFileString(filePath).pipe(
-      Effect.flatMap(Schema.decodeEffect(schema)),
-      Effect.catchTag('SchemaError', (schemaError) =>
-        Effect.fail(new PodFileUnreadable({ filePath, issueMessage: schemaError.message })),
-      ),
-    )
-  })
-
-const writeManifest = Effect.fn('writeManifest')(function* (
-  manifestPath: string,
-  manifest: Manifest,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const temporaryManifestPath = `${manifestPath}.tmp`
-  const manifestText = yield* Schema.encodeEffect(ManifestJson)(manifest)
-  const unchanged =
-    (yield* fileSystem.exists(manifestPath)) &&
-    (yield* fileSystem.readFileString(manifestPath)) === manifestText
-
-  if (unchanged) {
-    return
-  }
-
-  yield* fileSystem.makeDirectory(path.dirname(manifestPath), {
-    recursive: true,
-    mode: PRIVATE_DIRECTORY_MODE,
-  })
-  yield* fileSystem.writeFileString(temporaryManifestPath, manifestText)
-  yield* fileSystem.rename(temporaryManifestPath, manifestPath)
 })
 
 const claudeMcpServerOf = (mcpServer: McpServer): ClaudeMcpServer =>
@@ -339,7 +293,7 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   const { previousManifest } = claudeState
   const claudeFilePaths = claudeFilePathsOf(claudeConfig)
 
-  yield* writeManifest(paths.manifestPath, {
+  yield* writeClaudeManifest(paths.manifestPath, {
     claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
     claudeSettingsKeys: Arr.union(
       previousManifest.claudeSettingsKeys,
@@ -364,7 +318,7 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   )
   yield* mergeClaudeSettings(paths.settingsPath, claudeConfig.settings, previousManifest)
   yield* syncMcpServers(claudeConfig.mcpServers, claudeState)
-  yield* writeManifest(paths.manifestPath, {
+  yield* writeClaudeManifest(paths.manifestPath, {
     claudeFiles: claudeFilePaths,
     claudeSettingsKeys: Record.keys(claudeConfig.settings),
     mcpServers: claudeConfig.mcpServers,

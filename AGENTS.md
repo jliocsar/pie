@@ -144,7 +144,7 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, and reading and writing pod files. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
 
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 

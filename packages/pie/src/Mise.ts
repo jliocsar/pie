@@ -13,6 +13,8 @@ import {
   homeDirectory,
   type PodFile,
   REGULAR_FILE_MODE,
+  updateTextFile,
+  withBlock,
   writeFileIfChanged,
 } from './Pod.ts'
 
@@ -102,20 +104,6 @@ const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* () 
   yield* runCommand(['sh', installerPath])
 }, Effect.scoped)
 
-const addLineToShellStartupFile = Effect.fn('addLineToShellStartupFile')(function* (
-  startupFilePath: string,
-  startupLine: string,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const startupFile = (yield* fileSystem.exists(startupFilePath))
-    ? yield* fileSystem.readFileString(startupFilePath)
-    : ''
-
-  if (!Arr.contains(startupFile.split('\n'), startupLine)) {
-    yield* fileSystem.writeFileString(startupFilePath, `\n${startupLine}\n`, { flag: 'a' })
-  }
-})
-
 export const installTools = Effect.fn('installTools')(function* (environment: Environment) {
   const path = yield* Path.Path
   const home = yield* homeDirectory
@@ -127,8 +115,12 @@ export const installTools = Effect.fn('installTools')(function* (environment: En
     REGULAR_FILE_MODE,
   )
   yield* runMise(['install'])
-  yield* addLineToShellStartupFile(path.join(home, '.profile'), MISE_SHIMS_PATH_LINE)
-  yield* addLineToShellStartupFile(path.join(home, '.zshrc'), MISE_ZSH_ACTIVATE_LINE)
+  yield* updateTextFile(path.join(home, '.profile'), (text) =>
+    withBlock(text, 'mise', MISE_SHIMS_PATH_LINE),
+  )
+  yield* updateTextFile(path.join(home, '.zshrc'), (text) =>
+    withBlock(text, 'mise', MISE_ZSH_ACTIVATE_LINE),
+  )
 })
 
 export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly PodFile[]) {

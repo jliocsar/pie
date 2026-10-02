@@ -23,6 +23,7 @@ import {
   RepositoryUnreachable,
 } from './ExeDev.ts'
 import { runGit } from './Git.ts'
+import { HomeFileNotPies } from './Pod.ts'
 import {
   commitToConfigSource,
   CONFIG_REPOSITORY,
@@ -51,6 +52,14 @@ const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
   'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/mcp"}',
 ]
+
+const MISE_PROFILE_BLOCK =
+  '# >>> pie: mise >>>\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n# <<< pie: mise <<<\n'
+
+const MISE_ZSHRC_BLOCK =
+  '# >>> pie: mise >>>\neval "$($HOME/.local/bin/mise activate zsh)"\n# <<< pie: mise <<<\n'
+
+const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
 
@@ -165,6 +174,34 @@ const snapshotDirectory = Effect.fn('snapshotDirectory')(function* (directory: s
   return Record.fromEntries(files)
 })
 
+const snapshotHomeFiles = Effect.fn('snapshotHomeFiles')(function* (home: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const existingHomeFilePaths = yield* Effect.filter(HOME_FILE_PATHS, (homeFilePath) =>
+    fileSystem.exists(path.join(home, homeFilePath)),
+  )
+  const homeFiles = yield* Effect.forEach(existingHomeFilePaths, (homeFilePath) =>
+    Effect.all({
+      text: fileSystem.readFileString(path.join(home, homeFilePath)),
+      fileInfo: fileSystem.stat(path.join(home, homeFilePath)),
+    }).pipe(
+      Effect.map(
+        ({ text, fileInfo }) =>
+          [
+            homeFilePath,
+            {
+              text,
+              mode: fileInfo.mode & PERMISSION_BITS,
+              modifiedAt: Option.getOrNull(fileInfo.mtime),
+            },
+          ] as const,
+      ),
+    ),
+  )
+
+  return Record.fromEntries(homeFiles)
+})
+
 const writeClaudeState = Effect.fn('writeClaudeState')(function* (
   home: string,
   mcpNames: readonly string[],
@@ -228,24 +265,26 @@ describe('pie pod up', () => {
           const abbreviatedCommit = headCommit.slice(0, 7)
 
           yield* prepareBox(home)
+          yield* fileSystem.writeFileString(path.join(home, '.zshrc'), '# stock\n', {
+            mode: 0o644,
+          })
           yield* writeOwnClaudeSettings(home, { theme: 'dark', model: 'sonnet' })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
           const firstMiseCalls = yield* readMiseCalls(home)
           const firstSnapshot = yield* snapshotDirectory(claudeDirectory)
+          const firstHomeSnapshot = yield* snapshotHomeFiles(home)
           const firstManifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
 
           yield* runPieOn('pod', ['pod', 'up'])
 
           const secondMiseCalls = yield* readMiseCalls(home)
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
+          const secondHomeSnapshot = yield* snapshotHomeFiles(home)
           const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
           const miseConfig = yield* fileSystem.readFileString(
             path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
-          )
-          const shellStartupFiles = yield* Effect.forEach(['.profile', '.zshrc'], (fileName) =>
-            fileSystem.readFileString(path.join(home, fileName)),
           )
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
@@ -271,10 +310,18 @@ describe('pie pod up', () => {
           expect(miseConfig).toBe(
             '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
-          expect(shellStartupFiles).toEqual([
-            '\nexport PATH="$HOME/.local/share/mise/shims:$PATH"\n',
-            '\neval "$($HOME/.local/bin/mise activate zsh)"\n',
-          ])
+          expect(Record.map(firstHomeSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
+            '.profile': { text: MISE_PROFILE_BLOCK, mode: 0o644 },
+            '.zshrc': {
+              text: `# stock\n${MISE_ZSHRC_BLOCK}# >>> pie: home/zsh >>>\nalias ll='ls -l'\n# <<< pie: home/zsh <<<\n`,
+              mode: 0o644,
+            },
+            '.config/starship.toml': {
+              text: SEED_CONFIG_FILES['home/shell/.config/starship.toml'],
+              mode: 0o644,
+            },
+          })
+          expect(secondHomeSnapshot).toEqual(firstHomeSnapshot)
           expect(secondSnapshot).toEqual(firstSnapshot)
           expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
           expect(output.stdout).toEqual(
@@ -316,7 +363,12 @@ describe('pie pod up', () => {
             path.join(claudeDirectory, 'skills', 'handoff'),
           )
           const miseCalls = yield* readMiseCalls(home)
+          const remainingHomeFiles = yield* snapshotHomeFiles(home)
 
+          expect(Record.map(remainingHomeFiles, ({ text }) => text)).toEqual({
+            '.profile': MISE_PROFILE_BLOCK,
+            '.zshrc': MISE_ZSHRC_BLOCK,
+          })
           expect(Record.map(remainingClaudeFiles, ({ text }) => text)).toEqual({
             'settings.json': '{\n  "theme": "dark"\n}\n',
             'skills/mine/SKILL.md': 'mine',
@@ -332,7 +384,7 @@ describe('pie pod up', () => {
       ),
     ))
 
-  test("fails before changing anything when a skill or an MCP of the same name isn't pie's", () =>
+  test("fails before changing anything when a skill, an MCP or a home file of the same name isn't pie's", () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
@@ -341,9 +393,13 @@ describe('pie pod up', () => {
           const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
           const skillHome = homeOf('skill-box')
           const mcpHome = homeOf('mcp-box')
+          const homeFileHome = homeOf('home-box')
+          const ownStarshipPath = path.join(homeFileHome, '.config', 'starship.toml')
           const ownSkillPath = path.join(skillHome, '.claude', 'skills', 'handoff', 'SKILL.md')
 
-          yield* Effect.forEach([skillHome, mcpHome], prepareBox, { discard: true })
+          yield* Effect.forEach([skillHome, mcpHome, homeFileHome], prepareBox, { discard: true })
+          yield* fileSystem.makeDirectory(path.dirname(ownStarshipPath), { recursive: true })
+          yield* fileSystem.writeFileString(ownStarshipPath, 'mine')
           yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
           yield* fileSystem.writeFileString(ownSkillPath, 'mine')
           yield* writeClaudeState(mcpHome, ['fff'])
@@ -352,6 +408,9 @@ describe('pie pod up', () => {
             runPieOn('skill-box', ['pod', 'up', CONFIG_REPOSITORY]),
           )
           const mcpClash = yield* Effect.flip(runPieOn('mcp-box', ['pod', 'up', CONFIG_REPOSITORY]))
+          const homeFileClash = yield* Effect.flip(
+            runPieOn('home-box', ['pod', 'up', CONFIG_REPOSITORY]),
+          )
           const skillBoxAgentsWritten = yield* fileSystem.exists(
             path.join(skillHome, '.claude', 'agents'),
           )
@@ -359,12 +418,16 @@ describe('pie pod up', () => {
           const miseCalls = [
             ...(yield* readMiseCalls(skillHome)),
             ...(yield* readMiseCalls(mcpHome)),
+            ...(yield* readMiseCalls(homeFileHome)),
           ]
 
           expect(skillClash).toEqual(
             new ClaudeEntryNotPies({ entryPath: path.dirname(ownSkillPath) }),
           )
           expect(mcpClash).toEqual(new McpServerNotPies({ mcpName: 'fff' }))
+          expect(homeFileClash).toEqual(
+            new HomeFileNotPies({ filePath: ownStarshipPath, homeName: 'shell' }),
+          )
           expect([skillBoxAgentsWritten, mcpBoxClaudeWritten]).toEqual([false, false])
           expect(miseCalls).toEqual([])
         }),
@@ -445,6 +508,7 @@ describe('pie sync and pie check', () => {
             settings: { type: 'string', enum: ['default'] },
             skill: { type: 'string', enum: ['handoff'] },
             mcp: { type: 'string', enum: ['docs', 'fff'] },
+            home: { type: 'string', enum: ['shell', 'zsh'] },
           })
           expect(environmentDefinitions).toEqual({ task: { type: 'string', enum: ['workspace'] } })
           expect(mcpDefinitions).toEqual({})

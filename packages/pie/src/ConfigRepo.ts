@@ -20,6 +20,20 @@ const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'i
 
 export const SCHEMA_DIRECTORY = '.pie/schema'
 
+const PIE_OWNED_HOME_PATHS = [
+  '.claude',
+  '.claude.json',
+  '.config/pie',
+  '.config/mise',
+  '.cache/pie',
+  '.local/bin/pie',
+  '.local/bin/mise',
+  '.local/share/mise',
+  'workspace',
+]
+
+const APPEND_ONLY_HOME_PATHS = ['.profile', '.zshrc']
+
 export const ReferenceKind = Schema.Literals([
   'environment',
   'agent',
@@ -27,6 +41,7 @@ export const ReferenceKind = Schema.Literals([
   'skill',
   'mcp',
   'task',
+  'home',
 ])
 
 export type ReferenceKind = typeof ReferenceKind.Type
@@ -88,6 +103,28 @@ export const Repository = Schema.Union([
 
 export type Repository = typeof Repository.Type
 
+const HomeName = nameOf('home')
+
+const HomeSetTable = Schema.Struct({
+  name: HomeName,
+  mode: Schema.Literals(['copy', 'append']),
+})
+
+export const HomeSet = Schema.Union([
+  HomeName.pipe(
+    Schema.decodeTo(
+      HomeSetTable,
+      SchemaTransformation.transform({
+        decode: (name: string): typeof HomeSetTable.Type => ({ name, mode: 'copy' }),
+        encode: (homeSet) => homeSet.name,
+      }),
+    ),
+  ),
+  HomeSetTable,
+])
+
+export type HomeSet = typeof HomeSet.Type
+
 const ClaudeRecipe = Schema.Struct({
   agents: namesOf('agent'),
   settings: Schema.optionalKey(nameOf('settings')),
@@ -99,6 +136,7 @@ export const Recipe = Schema.Struct({
   repositories: withEmptyDefault(Repository),
   skills: namesOf('skill'),
   mcp: namesOf('mcp'),
+  home: Schema.optionalKey(Schema.Array(HomeSet)),
   claude: ClaudeRecipe.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 })
 
@@ -136,6 +174,7 @@ const Config = Schema.Struct({
   settings: Schema.Record(Schema.String, ClaudeSettings),
   skills: Schema.Record(Schema.String, Frontmatter),
   tasks: Schema.Array(Schema.String),
+  homeSets: Schema.Record(Schema.String, Schema.Array(Schema.String)),
 })
 
 type Config = typeof Config.Type
@@ -152,6 +191,7 @@ export const configFilePathOf = {
   settings: (settingsName: string) => `claude/settings/${settingsName}.json`,
   skill: (skillName: string) => `skills/${skillName}/SKILL.md`,
   task: (taskName: string) => `tasks/${taskName}`,
+  home: (homeName: string) => `home/${homeName}`,
   schema: (tomlKind: TomlKind) => `${SCHEMA_DIRECTORY}/${tomlKind}.json`,
 }
 
@@ -224,6 +264,38 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
 ) {
   override get message(): string {
     return `${configFilePathOf.recipe(this.recipeName)} can't name a recipe, since ${RECIPE_TAG_PREFIX}${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
+  }
+}
+
+export class HomePathPieOwned extends Schema.TaggedError<HomePathPieOwned>()('HomePathPieOwned', {
+  filePath: Schema.String,
+  homePath: Schema.String,
+}) {
+  override get message(): string {
+    return `${this.filePath} would land on ~/${this.homePath}, which pie writes itself. Set it through a recipe or an environment instead.`
+  }
+}
+
+export class HomeFileAppendOnly extends Schema.TaggedError<HomeFileAppendOnly>()(
+  'HomeFileAppendOnly',
+  {
+    filePath: Schema.String,
+    homeName: Schema.String,
+    homePath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${this.filePath} copies ~/${this.homePath} from home set "${this.homeName}", but pie adds its own lines there, so it can only be appended to. List it as { name = "${this.homeName}", mode = "append" }.`
+  }
+}
+
+export class HomePathsOverlap extends Schema.TaggedError<HomePathsOverlap>()('HomePathsOverlap', {
+  filePath: Schema.String,
+  homePath: Schema.String,
+  homeNames: Schema.Array(Schema.String),
+}) {
+  override get message(): string {
+    return `${this.filePath} lists home sets ${this.homeNames.join(' and ')}, which both write ~/${this.homePath}. Only append sets can share a file.`
   }
 }
 
@@ -313,6 +385,7 @@ export const listConfigNames = Effect.fn('listConfigNames')(function* (configDir
     skill: yield* listDirectory(configDirectory, 'skills', 'Directory', { recursive: false }),
     mcp: yield* listNamesByExtension(configDirectory, 'mcp', '.toml'),
     task: yield* listDirectory(configDirectory, 'tasks', 'File', { recursive: true }),
+    home: yield* listDirectory(configDirectory, 'home', 'Directory', { recursive: false }),
   }
 
   return configNames
@@ -376,6 +449,33 @@ const loadSettings = (configDirectory: string, settingsNames: readonly string[])
     )
   }).pipe(Effect.map(Record.fromEntries))
 
+const isPieOwnedHomePath = (homePath: string) =>
+  Arr.some(
+    PIE_OWNED_HOME_PATHS,
+    (pieOwnedPath) => homePath === pieOwnedPath || homePath.startsWith(`${pieOwnedPath}/`),
+  )
+
+const loadHomeSets = (configDirectory: string, homeNames: readonly string[]) =>
+  Effect.forEach(homeNames, (homeName) =>
+    listDirectory(configDirectory, configFilePathOf.home(homeName), 'File', {
+      recursive: true,
+    }).pipe(
+      Effect.tap((homePaths) =>
+        Option.match(Arr.findFirst(homePaths, isPieOwnedHomePath), {
+          onNone: () => Effect.void,
+          onSome: (homePath) =>
+            Effect.fail(
+              new HomePathPieOwned({
+                filePath: `${configFilePathOf.home(homeName)}/${homePath}`,
+                homePath,
+              }),
+            ),
+        }),
+      ),
+      Effect.map((homePaths) => [homeName, homePaths] as const),
+    ),
+  ).pipe(Effect.map(Record.fromEntries))
+
 const lookUpReference =
   <Value>(
     filePath: string,
@@ -437,9 +537,67 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     ]),
   )
 
+  const homeFiles = Arr.flatten(
+    yield* Effect.forEach(
+      Option.getOrElse(Option.fromUndefinedOr(recipe.home), Arr.empty),
+      (homeSet) =>
+        Effect.map(
+          lookUpReference(filePath, 'home', config.homeSets)(homeSet.name),
+          Arr.map((homePath) => ({
+            homeName: homeSet.name,
+            mode: homeSet.mode,
+            sourcePath: `${configFilePathOf.home(homeSet.name)}/${homePath}`,
+            homePath,
+          })),
+        ),
+    ),
+  )
+
+  yield* Option.match(
+    Arr.findFirst(
+      homeFiles,
+      (homeFile) =>
+        homeFile.mode === 'copy' && Arr.contains(APPEND_ONLY_HOME_PATHS, homeFile.homePath),
+    ),
+    {
+      onNone: () => Effect.void,
+      onSome: ({ homeName, homePath }) =>
+        Effect.fail(new HomeFileAppendOnly({ filePath, homeName, homePath })),
+    },
+  )
+  yield* Option.match(
+    Arr.findFirst(
+      homeFiles,
+      (homeFile) =>
+        homeFile.mode === 'copy' &&
+        Arr.some(
+          homeFiles,
+          (otherHomeFile) =>
+            otherHomeFile !== homeFile && otherHomeFile.homePath === homeFile.homePath,
+        ),
+    ),
+    {
+      onNone: () => Effect.void,
+      onSome: ({ homePath }) =>
+        Effect.fail(
+          new HomePathsOverlap({
+            filePath,
+            homePath,
+            homeNames: Arr.dedupe(
+              Arr.map(
+                Arr.filter(homeFiles, (homeFile) => homeFile.homePath === homePath),
+                (homeFile) => homeFile.homeName,
+              ),
+            ),
+          }),
+        ),
+    },
+  )
+
   return {
     ...recipe,
     environment,
+    home: homeFiles,
     mcp: mcpServers,
     claude: { agents: recipe.claude.agents, settings: claudeSettings },
   }
@@ -468,6 +626,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     settings: yield* loadSettings(configDirectory, configNames.settings),
     skills: yield* loadFrontmatters(configDirectory, configNames.skill, configFilePathOf.skill),
     tasks: configNames.task,
+    homeSets: yield* loadHomeSets(configDirectory, configNames.home),
   }
 
   yield* Effect.forEach(

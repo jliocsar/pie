@@ -20,7 +20,13 @@ import {
   syncConfigCheckout,
 } from '../Git.ts'
 import { installTools, runTasks } from '../Mise.ts'
-import { readPodFile } from '../Pod.ts'
+import {
+  applyHomeFiles,
+  failOnForeignHomeFiles,
+  homeFilesOf,
+  readHomeManifest,
+  readPodFile,
+} from '../Pod.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
@@ -55,9 +61,13 @@ export const pod = Command.make('pod').pipe(
         )
         const claudeConfig = yield* claudeConfigOf(checkoutDirectory, recipe)
         const claudeState = yield* readClaudeState()
+        const homeFiles = yield* homeFilesOf(checkoutDirectory, recipe)
+        const previousHomeManifest = yield* readHomeManifest()
 
         yield* failOnForeignClaudeConfig(claudeConfig, claudeState)
+        yield* failOnForeignHomeFiles(homeFiles, previousHomeManifest)
         yield* installTools(recipe.environment)
+        yield* applyHomeFiles(homeFiles, previousHomeManifest)
         yield* runTasks(tasks)
         yield* cloneMissingRepositories(recipeName, recipe.repositories)
         yield* applyClaudeConfig(claudeConfig, claudeState)

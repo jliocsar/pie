@@ -18,6 +18,7 @@ environment = "personal"
 repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
 skills = ["handoff"]
 mcp = ["fff", "docs"]
+home = ["shell", { name = "zsh", mode = "append" }]
 
 [claude]
 agents = ["oracle"]
@@ -43,6 +44,8 @@ GH_HOST = "github.int.exe.xyz"
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite.\n',
   'skills/handoff/scripts/greet': '#!/bin/sh\necho hi\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p "$HOME/workspace"\n',
+  'home/shell/.config/starship.toml': 'add_newline = false\n',
+  'home/zsh/.zshrc': "alias ll='ls -l'\n",
 } satisfies Record.ReadonlyRecord<string, string>
 
 const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
