@@ -105,4 +105,8 @@ export const check = Command.make(
     )
     yield* Console.log('Config is valid.')
   }),
+).pipe(
+  Command.withDescription(
+    'Validate a config repo checkout: the recipes, their references and the schema files. Defaults to the current directory.',
+  ),
 )

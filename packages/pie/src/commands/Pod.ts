@@ -33,6 +33,7 @@ export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('Recipe
 }
 
 export const pod = Command.make('pod').pipe(
+  Command.withDescription('Commands that run on a pod, the exe.dev VM a recipe sets up.'),
   Command.withSubcommands([
     Command.make(
       'up',
@@ -64,6 +65,10 @@ export const pod = Command.make('pod').pipe(
           `Applied recipe ${recipeName} at config commit ${commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
         )
       }),
+    ).pipe(
+      Command.withDescription(
+        "Apply this VM's recipe, named by its pie-recipe-<name> tag, from the config repo. The first run needs <org/repo>; later runs remember it.",
+      ),
     ),
   ]),
 )

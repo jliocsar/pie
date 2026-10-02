@@ -62,4 +62,8 @@ export const sync = Command.make(
     )
     yield* Console.log(`Synced ${path.join(configDirectory, SCHEMA_DIRECTORY)}.`)
   }),
+).pipe(
+  Command.withDescription(
+    'Rewrite .pie/schema from the names on disk, so editors autocomplete them. Run it after adding or renaming a config file.',
+  ),
 )
