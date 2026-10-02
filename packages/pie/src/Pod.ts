@@ -19,7 +19,7 @@ import {
   loadConfig,
   type McpServer,
   type ToolRequest,
-} from './Config.ts'
+} from './ConfigRepo.ts'
 import { POD_TAG, RECIPE_TAG_PREFIX, recipeNameOfThisVm } from './Reflection.ts'
 
 const REGULAR_FILE_MODE = 0o644

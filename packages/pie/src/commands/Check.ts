@@ -6,13 +6,8 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
-import {
-  configFilePathOf,
-  listConfigNames,
-  loadConfig,
-  renderSchemaFiles,
-  type TomlKind,
-} from '../Config.ts'
+import { configFilePathOf, listConfigNames, loadConfig, type TomlKind } from '../ConfigRepo.ts'
+import { renderSchemaFiles } from './Sync.ts'
 
 const LINE_BREAK_PATTERN = /\r?\n/u
 

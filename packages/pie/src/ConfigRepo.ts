@@ -1,7 +1,6 @@
 import * as Arr from 'effect/Array'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
-import * as JsonSchema from 'effect/JsonSchema'
 import * as Option from 'effect/Option'
 import * as Order from 'effect/Order'
 import * as Path from 'effect/Path'
@@ -10,7 +9,7 @@ import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
 
-type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
+export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 
@@ -142,7 +141,7 @@ const Config = Schema.Struct({
 
 type Config = typeof Config.Type
 
-const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
+export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
 
 export type TomlKind = keyof typeof tomlSchemas
 
@@ -228,31 +227,6 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
     return `${configFilePathOf.recipe(this.recipeName)} can't name a recipe, since pie-recipe-${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
   }
 }
-
-const renderJsonSchema = (schema: Schema.Top, configNames: ConfigNames) => {
-  const document = Schema.toJsonSchemaDocument(schema, { onExcessProperty: 'error' })
-  const definitions = Record.map(document.definitions, (definition, identifier) =>
-    Option.match(Option.liftPredicate(identifier, Schema.is(ReferenceKind)), {
-      onNone: () => definition,
-      onSome: (referenceKind) => ({ type: 'string', enum: configNames[referenceKind] }),
-    }),
-  )
-
-  return `${JSON.stringify(
-    { $schema: JsonSchema.META_SCHEMA_URI_DRAFT_2020_12, ...document.schema, $defs: definitions },
-    null,
-    2,
-  )}\n`
-}
-
-export const renderSchemaFiles = (configNames: ConfigNames) =>
-  Record.fromEntries(
-    Arr.map(
-      Record.toEntries(tomlSchemas),
-      ([tomlKind, schema]) =>
-        [configFilePathOf.schema(tomlKind), renderJsonSchema(schema, configNames)] as const,
-    ),
-  )
 
 const decodeConfigText =
   <Decoded>(

@@ -13,7 +13,7 @@ import {
   FrontmatterMissing,
   loadConfig,
   RecipeNameNotTaggable,
-} from './Config.ts'
+} from './ConfigRepo.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
 tasks = ["workspace", "work/setup-gcloud"]

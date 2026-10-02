@@ -14,7 +14,7 @@ import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
-import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './Config.ts'
+import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, McpServerNotPies, RepositoryUnreachable, runGit } from './Pod.ts'
 import { RecipeTagMissing, RecipeTagsConflict, REFLECTION_TAGS_URL } from './Reflection.ts'
 import {
