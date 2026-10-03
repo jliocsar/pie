@@ -10,6 +10,7 @@ import {
   claudeConfigOf,
   failOnForeignClaudeConfig,
   readClaudeState,
+  writeClaudeInstructions,
 } from '../Claude.ts'
 import { configFilePathOf, loadConfig } from '../ConfigRepo.ts'
 import { recipeNameOfThisVm } from '../ExeDev.ts'
@@ -71,6 +72,7 @@ export const pod = Command.make('pod').pipe(
         yield* runTasks(tasks)
         yield* cloneMissingRepositories(recipeName, recipe.repositories)
         yield* applyClaudeConfig(claudeConfig, claudeState)
+        yield* writeClaudeInstructions(recipeName, repositoryName)
         yield* Console.log(
           `Applied recipe ${recipeName} at config commit ${commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
         )

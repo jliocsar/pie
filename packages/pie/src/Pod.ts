@@ -7,6 +7,8 @@ import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
 import type { ResolvedRecipe } from './ConfigRepo.ts'
 
+type BlockMarkers = readonly [startMarker: string, endMarker: string]
+
 export const REGULAR_FILE_MODE = 0o644
 
 export const EXECUTABLE_FILE_MODE = 0o755
@@ -16,6 +18,11 @@ export const PRIVATE_DIRECTORY_MODE = 0o700
 const PERMISSION_BITS = 0o777
 
 const EXECUTABLE_MODE_BITS = 0o111
+
+export const MARKDOWN_BLOCK_MARKERS: BlockMarkers = [
+  '<!-- >>> pie >>> -->\n',
+  '<!-- <<< pie <<< -->\n',
+]
 
 const AppendedBlock = Schema.Struct({ homePath: Schema.String, homeName: Schema.String })
 
@@ -146,13 +153,14 @@ export const writeManifest = <Manifest>(schema: Schema.Codec<Manifest, string>) 
 const withTrailingLineBreak = (text: string) =>
   text === '' || text.endsWith('\n') ? text : `${text}\n`
 
-const blockMarkersOf = (blockName: string) =>
-  [`# >>> pie: ${blockName} >>>\n`, `# <<< pie: ${blockName} <<<\n`] as const
+export const shellBlockMarkersOf = (blockName: string): BlockMarkers => [
+  `# >>> pie: ${blockName} >>>\n`,
+  `# <<< pie: ${blockName} <<<\n`,
+]
 
-const homeBlockNameOf = (homeName: string) => `home/${homeName}`
+const homeBlockMarkersOf = (homeName: string) => shellBlockMarkersOf(`home/${homeName}`)
 
-const blockRangeOf = (text: string, blockName: string) => {
-  const [startMarker, endMarker] = blockMarkersOf(blockName)
+const blockRangeOf = (text: string, [startMarker, endMarker]: BlockMarkers) => {
   const startIndex = text.indexOf(startMarker)
   const endIndex = text.indexOf(endMarker, startIndex)
 
@@ -161,19 +169,19 @@ const blockRangeOf = (text: string, blockName: string) => {
     : Option.none()
 }
 
-export const withBlock = (text: string, blockName: string, blockContent: string) => {
-  const [startMarker, endMarker] = blockMarkersOf(blockName)
+export const withBlock = (text: string, blockMarkers: BlockMarkers, blockContent: string) => {
+  const [startMarker, endMarker] = blockMarkers
   const block = `${startMarker}${withTrailingLineBreak(blockContent)}${endMarker}`
 
-  return Option.match(blockRangeOf(text, blockName), {
+  return Option.match(blockRangeOf(text, blockMarkers), {
     onNone: () => `${withTrailingLineBreak(text)}${block}`,
     onSome: ({ startIndex, endIndex }) =>
       `${text.slice(0, startIndex)}${block}${text.slice(endIndex)}`,
   })
 }
 
-const withoutBlock = (text: string, blockName: string) =>
-  Option.match(blockRangeOf(text, blockName), {
+const withoutBlock = (text: string, blockMarkers: BlockMarkers) =>
+  Option.match(blockRangeOf(text, blockMarkers), {
     onNone: () => text,
     onSome: ({ startIndex, endIndex }) => `${text.slice(0, startIndex)}${text.slice(endIndex)}`,
   })
@@ -268,12 +276,12 @@ const updateBlocks = Effect.fn('updateBlocks')(function* (
     Arr.reduce(
       appendedFilesHere,
       Arr.reduce(staleBlocksHere, text, (updatedText, staleBlock) =>
-        withoutBlock(updatedText, homeBlockNameOf(staleBlock.homeName)),
+        withoutBlock(updatedText, homeBlockMarkersOf(staleBlock.homeName)),
       ),
       (updatedText, homeFile) =>
         withBlock(
           updatedText,
-          homeBlockNameOf(homeFile.homeName),
+          homeBlockMarkersOf(homeFile.homeName),
           new TextDecoder().decode(homeFile.content),
         ),
     ),

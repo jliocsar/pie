@@ -13,6 +13,7 @@ import {
   homeDirectory,
   type PodFile,
   REGULAR_FILE_MODE,
+  shellBlockMarkersOf,
   updateTextFile,
   withBlock,
   writeFileIfChanged,
@@ -116,10 +117,10 @@ export const installTools = Effect.fn('installTools')(function* (environment: En
   )
   yield* runMise(['install'])
   yield* updateTextFile(path.join(home, '.profile'), (text) =>
-    withBlock(text, 'mise', MISE_SHIMS_PATH_LINE),
+    withBlock(text, shellBlockMarkersOf('mise'), MISE_SHIMS_PATH_LINE),
   )
   yield* updateTextFile(path.join(home, '.zshrc'), (text) =>
-    withBlock(text, 'mise', MISE_ZSH_ACTIVATE_LINE),
+    withBlock(text, shellBlockMarkersOf('mise'), MISE_ZSH_ACTIVATE_LINE),
   )
 })
 

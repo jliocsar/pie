@@ -19,8 +19,11 @@ import {
   decodeJsonFile,
   EXECUTABLE_FILE_MODE,
   homeDirectory,
+  MARKDOWN_BLOCK_MARKERS,
   readPodFile,
   REGULAR_FILE_MODE,
+  updateTextFile,
+  withBlock,
   writeFileIfChanged,
   writeManifest,
 } from './Pod.ts'
@@ -323,4 +326,28 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
     claudeSettingsKeys: Record.keys(claudeConfig.settings),
     mcpServers: claudeConfig.mcpServers,
   })
+})
+
+export const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
+  `## pie
+
+This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
+
+- The config repo is the source of truth. pie owns the tools, the home set files and \`~/.claude\`'s agents, settings, skills and MCPs. \`pie pod up\` overwrites local edits to them, so change the config repo instead. \`~/.config/pie/*manifest.json\` lists what pie owns.
+- Tools are pinned by mise. To add one, add it to the recipe's environment rather than installing it globally.
+- Repos live in \`~/workspace\`.
+- There are no secrets on this box. exe.dev integrations add auth at the network edge. If a request is denied, an integration is probably missing. Tell the user which one; don't ask for a token.
+- \`pie pod up\` re-applies the recipe.
+`
+
+export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(function* (
+  recipeName: string,
+  configRepository: string,
+) {
+  const path = yield* Path.Path
+  const { claudeDirectory } = yield* claudePaths
+
+  yield* updateTextFile(path.join(claudeDirectory, 'CLAUDE.md'), (text) =>
+    withBlock(text, MARKDOWN_BLOCK_MARKERS, claudeInstructionsOf(recipeName, configRepository)),
+  )
 })

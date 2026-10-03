@@ -15,7 +15,7 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
 import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
-import { ClaudeEntryNotPies, McpServerNotPies } from './Claude.ts'
+import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
   RecipeTagMissing,
   RecipeTagsConflict,
@@ -58,6 +58,7 @@ const MISE_PROFILE_BLOCK =
 
 const MISE_ZSHRC_BLOCK =
   '# >>> pie: mise >>>\neval "$($HOME/.local/bin/mise activate zsh)"\n# <<< pie: mise <<<\n'
+const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}<!-- <<< pie <<< -->\n`
 
 const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
@@ -269,6 +270,9 @@ describe('pie pod up', () => {
             mode: 0o644,
           })
           yield* writeOwnClaudeSettings(home, { theme: 'dark', model: 'sonnet' })
+          yield* fileSystem.writeFileString(path.join(claudeDirectory, 'CLAUDE.md'), '# stock\n', {
+            mode: 0o644,
+          })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
@@ -289,6 +293,7 @@ describe('pie pod up', () => {
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
+            'CLAUDE.md': { text: `# stock\n${CLAUDE_INSTRUCTIONS_BLOCK}`, mode: 0o644 },
             'agents/oracle.md': {
               text: SEED_CONFIG_FILES['claude/agents/oracle.md'],
               mode: 0o644,
@@ -370,6 +375,7 @@ describe('pie pod up', () => {
             '.zshrc': MISE_ZSHRC_BLOCK,
           })
           expect(Record.map(remainingClaudeFiles, ({ text }) => text)).toEqual({
+            'CLAUDE.md': CLAUDE_INSTRUCTIONS_BLOCK,
             'settings.json': '{\n  "theme": "dark"\n}\n',
             'skills/mine/SKILL.md': 'mine',
           })

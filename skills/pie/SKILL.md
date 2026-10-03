@@ -24,8 +24,8 @@ shell.
 - `pie pod up` runs on the pod. It reads the VM's tags through exe.dev's reflection integration,
   fetches the config repo through exe.dev's GitHub integration, and applies the recipe: mise
   installs the tools, the home sets land in `~`, mise runs the tasks, missing repos are cloned into
-  `~/workspace`, and Claude's agents, settings, skills and MCPs are written. Re-running it is how a
-  pod picks up new config.
+  `~/workspace`, Claude's agents, settings, skills and MCPs are written, and a `## pie` block in
+  `~/.claude/CLAUDE.md` tells Claude it's on a pod. Re-running it is how a pod picks up new config.
 - Secrets never live on a pod. exe.dev integrations add them at the network edge. The config repo's
   integration attaches to the `pie` tag, and a recipe's own integrations attach to its
   `pie-recipe-<name>` tag.
