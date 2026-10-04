@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array'
+import { pipe } from 'effect/Function'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Option from 'effect/Option'
@@ -162,9 +163,11 @@ export const failOnForeignClaudeConfig = Effect.fn('failOnForeignClaudeConfig')(
   const path = yield* Path.Path
   const { claudeDirectory } = yield* claudePaths
   const ownedEntries = Arr.map(previousManifest.claudeFiles, entryOf)
-  const newEntries = Arr.difference(
-    Arr.dedupe(Arr.map(claudeFilePathsOf(claudeConfig), entryOf)),
-    ownedEntries,
+  const newEntries = pipe(
+    claudeFilePathsOf(claudeConfig),
+    Arr.map(entryOf),
+    Arr.dedupe,
+    Arr.difference(ownedEntries),
   )
 
   yield* Effect.forEach(
@@ -212,12 +215,13 @@ const removeStaleClaudeFile = Effect.fn('removeStaleClaudeFile')(function* (
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const segments = claudeFilePath.split('/')
-  const directoriesInsideEntry = Arr.map(
+  const directoriesInsideEntry = pipe(
+    segments,
+    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
     Arr.filter(
-      Arr.scan(segments, Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
       (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
     ),
-    (prefix) => path.join(claudeDirectory, ...prefix),
+    Arr.map((prefix) => path.join(claudeDirectory, ...prefix)),
   )
 
   yield* fileSystem.remove(path.join(claudeDirectory, claudeFilePath), { force: true })

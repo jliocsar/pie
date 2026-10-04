@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array'
+import { pipe } from 'effect/Function'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Option from 'effect/Option'
@@ -361,9 +362,10 @@ const listNamesByExtension = Effect.fn('listNamesByExtension')(function* (
     recursive: false,
   })
 
-  return Arr.map(
-    Arr.filter(fileNames, (fileName) => path.extname(fileName) === extension),
-    (fileName) => path.basename(fileName, extension),
+  return pipe(
+    fileNames,
+    Arr.filter((fileName) => path.extname(fileName) === extension),
+    Arr.map((fileName) => path.basename(fileName, extension)),
   )
 })
 
@@ -583,11 +585,11 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
           new HomePathsOverlap({
             filePath,
             homePath,
-            homeNames: Arr.dedupe(
-              Arr.map(
-                Arr.filter(homeFiles, (homeFile) => homeFile.homePath === homePath),
-                (homeFile) => homeFile.homeName,
-              ),
+            homeNames: pipe(
+              homeFiles,
+              Arr.filter((homeFile) => homeFile.homePath === homePath),
+              Arr.map((homeFile) => homeFile.homeName),
+              Arr.dedupe,
             ),
           }),
         ),

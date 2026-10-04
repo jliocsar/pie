@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array'
+import { pipe } from 'effect/Function'
 import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
@@ -226,9 +227,10 @@ const copiedHomeFilesOf = (homeFiles: readonly HomeFile[]) =>
 
 const homeManifestOf = (homeFiles: readonly HomeFile[]): HomeManifest => ({
   copiedFiles: Arr.map(copiedHomeFilesOf(homeFiles), (homeFile) => homeFile.path),
-  appendedBlocks: Arr.map(
-    Arr.filter(homeFiles, (homeFile) => homeFile.mode === 'append'),
-    (homeFile) => ({ homePath: homeFile.path, homeName: homeFile.homeName }),
+  appendedBlocks: pipe(
+    homeFiles,
+    Arr.filter((homeFile) => homeFile.mode === 'append'),
+    Arr.map((homeFile) => ({ homePath: homeFile.path, homeName: homeFile.homeName })),
   ),
 })
 
@@ -322,8 +324,10 @@ export const applyHomeFiles = Effect.fn('applyHomeFiles')(function* (
     { discard: true },
   )
   yield* Effect.forEach(
-    Arr.dedupe(
-      Arr.map([...homeManifest.appendedBlocks, ...staleBlocks], (block) => block.homePath),
+    pipe(
+      [...homeManifest.appendedBlocks, ...staleBlocks],
+      Arr.map((block) => block.homePath),
+      Arr.dedupe,
     ),
     (homePath) => updateBlocks(homePath, homeFiles, staleBlocks),
     { discard: true },

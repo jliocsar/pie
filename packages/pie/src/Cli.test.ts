@@ -1,6 +1,7 @@
 import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
 import * as Arr from 'effect/Array'
+import { pipe } from 'effect/Function'
 import * as ConfigProvider from 'effect/ConfigProvider'
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
@@ -135,9 +136,10 @@ const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
   const miseCallsPath = path.join(home, 'mise-calls')
 
   if (yield* fileSystem.exists(miseCallsPath)) {
-    return Arr.map(
-      Arr.filter((yield* fileSystem.readFileString(miseCallsPath)).split('\n'), Boolean),
-      (miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>'),
+    return pipe(
+      (yield* fileSystem.readFileString(miseCallsPath)).split('\n'),
+      Arr.filter(Boolean),
+      Arr.map((miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>')),
     )
   }
 
