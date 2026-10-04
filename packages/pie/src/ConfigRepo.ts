@@ -14,9 +14,7 @@ import { isValidTag, RECIPE_TAG_PREFIX } from './ExeDev.ts'
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
-
 const TOML_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
-
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
 
 export const SCHEMA_DIRECTORY = '.pie/schema'

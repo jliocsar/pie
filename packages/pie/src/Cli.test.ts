@@ -38,15 +38,10 @@ printf '%s\\n' "$*" >> "$HOME/mise-calls"
 `
 
 const EXECUTABLE_FILE_MODE = 0o755
-
 const PERMISSION_BITS = 0o777
-
 const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
-
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
-
 const TASK_PATH_PATTERN = /^exec -- \/\S*\/(?<taskName>[^/\s]+)$/u
-
 const TOOL_AND_TASK_CALLS = ['install', 'exec -- <tasks>/workspace']
 
 const MCP_ADD_CALLS = [
@@ -59,8 +54,8 @@ const MISE_PROFILE_BLOCK =
 
 const MISE_ZSHRC_BLOCK =
   '# >>> pie: mise >>>\neval "$($HOME/.local/bin/mise activate zsh)"\n# <<< pie: mise <<<\n'
-const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}<!-- <<< pie <<< -->\n`
 
+const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}<!-- <<< pie <<< -->\n`
 const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)

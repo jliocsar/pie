@@ -10,15 +10,12 @@ import type { ResolvedRecipe } from './ConfigRepo.ts'
 
 type BlockMarkers = readonly [startMarker: string, endMarker: string]
 
-export const REGULAR_FILE_MODE = 0o644
-
-export const EXECUTABLE_FILE_MODE = 0o755
-
-export const PRIVATE_DIRECTORY_MODE = 0o700
-
 const PERMISSION_BITS = 0o777
-
 const EXECUTABLE_MODE_BITS = 0o111
+
+export const REGULAR_FILE_MODE = 0o644
+export const EXECUTABLE_FILE_MODE = 0o755
+export const PRIVATE_DIRECTORY_MODE = 0o700
 
 export const MARKDOWN_BLOCK_MARKERS: BlockMarkers = [
   '<!-- >>> pie >>> -->\n',

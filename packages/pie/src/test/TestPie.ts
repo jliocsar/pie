@@ -5,11 +5,10 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import { runGit } from '../Git.ts'
 
-export const CONFIG_REPOSITORY = 'jliocsar/agents-machines'
-
 const REGULAR_FILE_MODE = 0o644
-
 const EXECUTABLE_FILE_MODE = 0o755
+
+export const CONFIG_REPOSITORY = 'jliocsar/agents-machines'
 
 export const SEED_CONFIG_FILES = {
   'recipes/personal.toml': `#:schema ../.pie/schema/recipe.json

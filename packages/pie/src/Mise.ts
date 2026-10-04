@@ -20,9 +20,7 @@ import {
 } from './Pod.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'
-
 const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
-
 const MISE_ZSH_ACTIVATE_LINE = 'eval "$($HOME/.local/bin/mise activate zsh)"'
 
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
