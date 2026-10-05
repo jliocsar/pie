@@ -1,4 +1,10 @@
-# pie
+<div align="center">
+
+<h1>pie</h1>
+
+<img src="https://oldschool.runescape.wiki/images/Apple_pie_detail.png" width="256" />
+
+</div>
 
 A recipe manager for exe.dev VMs. A VM tagged `pie-recipe-<name>` becomes a Claude Code / Pi pod
 from that recipe in a config repo:
