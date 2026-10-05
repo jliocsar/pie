@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://oldschool.runescape.wiki/images/Apple_pie_detail.png" width="256" />
+<img src="https://oldschool.runescape.wiki/images/Apple_pie_detail.png" width="128" />
 
 <h1>pie</h1>
 
