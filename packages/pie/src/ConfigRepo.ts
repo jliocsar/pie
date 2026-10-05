@@ -153,7 +153,7 @@ export const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
 export type McpServer = typeof McpServer.Type
 
 export const Frontmatter = Schema.Struct({
-  name: Schema.String,
+  name: Schema.NonEmptyString,
   description: Schema.String,
 })
 
@@ -411,28 +411,36 @@ const loadTomlFiles = <Decoded>(
 const loadFrontmatter = Effect.fn('loadFrontmatter')(function* (
   configDirectory: string,
   filePath: string,
-  expectedName: string,
 ) {
   const text = yield* readConfigFile(configDirectory, filePath)
-  const frontmatter = yield* extractFrontmatter(filePath, text)
 
-  if (frontmatter.name !== expectedName) {
+  return yield* extractFrontmatter(filePath, text)
+})
+
+const loadAgents = (configDirectory: string, agentNames: readonly string[]) =>
+  Effect.forEach(agentNames, (agentName) =>
+    loadFrontmatter(configDirectory, configFilePathOf.agent(agentName)).pipe(
+      Effect.map((frontmatter) => [agentName, frontmatter] as const),
+    ),
+  ).pipe(Effect.map(Record.fromEntries))
+
+const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, skillName: string) {
+  const filePath = configFilePathOf.skill(skillName)
+  const frontmatter = yield* loadFrontmatter(configDirectory, filePath)
+
+  if (frontmatter.name !== skillName) {
     return yield* new ConfigNameMismatch({
       filePath,
       declaredName: frontmatter.name,
-      expectedName,
+      expectedName: skillName,
     })
   }
 
-  return [expectedName, frontmatter] as const
+  return [skillName, frontmatter] as const
 })
 
-const loadFrontmatters = (
-  configDirectory: string,
-  names: readonly string[],
-  filePathOf: (name: string) => string,
-) =>
-  Effect.forEach(names, (name) => loadFrontmatter(configDirectory, filePathOf(name), name)).pipe(
+const loadSkills = (configDirectory: string, skillNames: readonly string[]) =>
+  Effect.forEach(skillNames, (skillName) => loadSkill(configDirectory, skillName)).pipe(
     Effect.map(Record.fromEntries),
   )
 
@@ -622,9 +630,9 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
       configFilePathOf.mcp,
       McpServer,
     ),
-    agents: yield* loadFrontmatters(configDirectory, configNames.agent, configFilePathOf.agent),
+    agents: yield* loadAgents(configDirectory, configNames.agent),
     settings: yield* loadSettings(configDirectory, configNames.settings),
-    skills: yield* loadFrontmatters(configDirectory, configNames.skill, configFilePathOf.skill),
+    skills: yield* loadSkills(configDirectory, configNames.skill),
     tasks: configNames.task,
     homeSets: yield* loadHomeSets(configDirectory, configNames.home),
   }

@@ -42,7 +42,7 @@ settings = "default"
 `
 
 const AGENT_MARKDOWN = `---
-name: oracle
+name: Oracle, my Oracle
 description: deep codebase questions, read-only
 model: opus
 ---
@@ -116,7 +116,7 @@ describe('loadConfig', () => {
         ])
         expect(config.mcpServers['fff']).toEqual({ command: 'fff-mcp', args: [] })
         expect(config.agents['oracle']).toEqual({
-          name: 'oracle',
+          name: 'Oracle, my Oracle',
           description: 'deep codebase questions, read-only',
         })
         expect(Record.keys(config.skills)).toEqual(['handoff'])
@@ -200,11 +200,19 @@ describe('loadConfig', () => {
 
   test.each([
     {
-      description: 'an agent named apart from its file',
+      description: 'a skill named apart from its directory',
       overrides: {
-        'claude/agents/oracle.md': AGENT_MARKDOWN.replace('name: oracle', 'name: sage'),
+        'skills/handoff/SKILL.md': '---\nname: sage\ndescription: writes a handoff\n---\n',
       },
       errorClass: ConfigNameMismatch,
+      filePath: 'skills/handoff/SKILL.md',
+    },
+    {
+      description: 'an agent with an empty name',
+      overrides: {
+        'claude/agents/oracle.md': AGENT_MARKDOWN.replace('name: Oracle, my Oracle', 'name: ""'),
+      },
+      errorClass: ConfigFileInvalid,
       filePath: 'claude/agents/oracle.md',
     },
     {

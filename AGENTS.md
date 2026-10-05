@@ -330,9 +330,10 @@ the names on disk. Sync reads only file and directory names, so it works on a co
 load yet. taplo 0.10.0 reads Effect's draft 2020-12 output as-is, and flags both an unknown key and
 an unknown name (measured).
 
-Duplicate names can't happen: one file per name, and frontmatter names must match it. Agent and
-skill frontmatter needs only `name` and `description` and ignores the rest, since Claude Code keeps
-adding fields.
+Duplicate names can't happen: one file per name. A skill's frontmatter `name` must match its
+directory, as the Agent Skills spec requires. An agent's `name` only has to be non-empty, since
+Claude Code loads an agent whose name differs from its file. Agent and skill frontmatter needs only
+`name` and `description` and ignores the rest, since Claude Code keeps adding fields.
 
 The config repo gates pushes with a mise task running `pie check`, plus the same check in CI. A
 `mise.toml` holding only a task runs without `mise trust` (measured on mise 2026.9.6), so the
