@@ -4,9 +4,11 @@
 
 <h1>pie</h1>
 
+<i>A recipe manager for exe.dev VMs.</i>
+
 </div>
 
-A recipe manager for exe.dev VMs. A VM tagged `pie-recipe-<name>` becomes a Claude Code / Pi pod
+A VM tagged `pie-recipe-<name>` becomes a Claude Code / Pi pod
 from that recipe in a config repo:
 
 ```sh
