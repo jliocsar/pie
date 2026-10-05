@@ -513,7 +513,10 @@ describe('pie sync and pie check', () => {
             mcp: { type: 'string', enum: ['docs', 'fff'] },
             home: { type: 'string', enum: ['shell', 'zsh'] },
           })
-          expect(environmentDefinitions).toEqual({ task: { type: 'string', enum: ['workspace'] } })
+          expect(environmentDefinitions).toEqual({
+            environment: { type: 'string', enum: ['personal'] },
+            task: { type: 'string', enum: ['workspace'] },
+          })
           expect(mcpDefinitions).toEqual({})
           expect(output.stdout).toEqual([
             `Synced ${path.join(sourceDirectory, '.pie/schema')}.`,

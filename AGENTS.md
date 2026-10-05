@@ -384,6 +384,13 @@ what runs through them: with shims alone, a login zsh had no `GH_HOST`, and node
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 
+An environment can `extends` one other, and chains resolve all the way down. `tools` and `env`
+merge key by key with the child winning. A tool's entry is replaced whole rather than merging its
+options, so what a file says about a tool is all of it. `tasks` is replaced whole as well: leaving
+it out inherits the parent's, and `[]` clears them. `label` never inherits, since it names that one
+file. Every environment resolves in the loader, used or not, so `pie check` catches a broken chain
+before any recipe points at it. Recipes don't extend.
+
 An environment's tool is a version or a flat table of mise tool options holding one. Some tools
 need options to be installable at all: fff's releases ship a library beside the `fff-mcp` binary,
 and mise's asset autodetection picked the library (measured). Every tool reaches the box as an

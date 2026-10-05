@@ -13,6 +13,11 @@ import { isValidTag, RECIPE_TAG_PREFIX } from './ExeDev.ts'
 
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
+type EnvironmentResolution = Effect.Effect<
+  ResolvedEnvironment,
+  ConfigReferenceMissing | EnvironmentExtendsCycle
+>
+
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const TOML_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
@@ -72,13 +77,21 @@ export const ToolRequest = Schema.Union([
 
 export type ToolRequest = typeof ToolRequest.Type
 
-export const Environment = Schema.Struct({
+export const ResolvedEnvironment = Schema.Struct({
   label: Schema.String,
   tools: Schema.Record(Schema.String, ToolRequest),
-  env: Schema.Record(Schema.String, Schema.String).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed({})),
-  ),
-  tasks: namesOf('task'),
+  env: Schema.Record(Schema.String, Schema.String),
+  tasks: Schema.Array(nameOf('task')),
+})
+
+export type ResolvedEnvironment = typeof ResolvedEnvironment.Type
+
+export const Environment = Schema.Struct({
+  extends: Schema.optionalKey(nameOf('environment')),
+  label: ResolvedEnvironment.fields.label,
+  tools: ResolvedEnvironment.fields.tools.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
+  env: ResolvedEnvironment.fields.env.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
+  tasks: Schema.optionalKey(ResolvedEnvironment.fields.tasks),
 })
 
 export type Environment = typeof Environment.Type
@@ -166,7 +179,7 @@ export type ClaudeSettings = typeof ClaudeSettings.Type
 const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings)
 
 const Config = Schema.Struct({
-  environments: Schema.Record(Schema.String, Environment),
+  environments: Schema.Record(Schema.String, ResolvedEnvironment),
   recipes: Schema.Record(Schema.String, Recipe),
   mcpServers: Schema.Record(Schema.String, McpServer),
   agents: Schema.Record(Schema.String, Frontmatter),
@@ -252,6 +265,18 @@ export class ConfigReferenceMissing extends Schema.TaggedError<ConfigReferenceMi
 ) {
   override get message(): string {
     return `${this.filePath} lists ${this.referenceKind} "${this.referenceName}", but ${configFilePathOf[this.referenceKind](this.referenceName)} doesn't exist.`
+  }
+}
+
+export class EnvironmentExtendsCycle extends Schema.TaggedError<EnvironmentExtendsCycle>()(
+  'EnvironmentExtendsCycle',
+  {
+    filePath: Schema.String,
+    environmentNames: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `${this.filePath} extends itself through ${this.environmentNames.join(' -> ')}. Remove one of those extends.`
   }
 }
 
@@ -490,22 +515,77 @@ const lookUpReference =
     referenceKind: ReferenceKind,
     entries: Record.ReadonlyRecord<string, Value>,
   ) =>
-  (referenceName: string) =>
+  (referenceName: string): Effect.Effect<Value, ConfigReferenceMissing> =>
     Option.match(Record.get(entries, referenceName), {
       onNone: () =>
         Effect.fail(new ConfigReferenceMissing({ filePath, referenceKind, referenceName })),
       onSome: Effect.succeed,
     })
 
-const checkEnvironment = (config: Config, environmentName: string, environment: Environment) =>
+const checkEnvironment = (
+  taskNames: readonly string[],
+  environmentName: string,
+  environment: Environment,
+) =>
   Effect.forEach(
-    environment.tasks,
+    Option.getOrElse(Option.fromUndefinedOr(environment.tasks), Arr.empty),
     lookUpReference(
       configFilePathOf.environment(environmentName),
       'task',
-      Record.fromIterableWith(config.tasks, (taskName) => [taskName, taskName]),
+      Record.fromIterableWith(taskNames, (taskName) => [taskName, taskName]),
     ),
     { discard: true },
+  )
+
+const ROOT_ENVIRONMENT: ResolvedEnvironment = { label: '', tools: {}, env: {}, tasks: [] }
+
+const resolveParentEnvironment = (
+  environments: Record.ReadonlyRecord<string, Environment>,
+  environmentChain: Arr.NonEmptyReadonlyArray<string>,
+  parentName: string,
+): EnvironmentResolution =>
+  Option.match(
+    Arr.findFirstIndex(environmentChain, (environmentName) => environmentName === parentName),
+    {
+      onNone: () =>
+        lookUpReference(
+          configFilePathOf.environment(Arr.lastNonEmpty(environmentChain)),
+          'environment',
+          environments,
+        )(parentName).pipe(
+          Effect.flatMap((parent) =>
+            resolveEnvironment(environments, Arr.append(environmentChain, parentName), parent),
+          ),
+        ),
+      onSome: (cycleStartIndex) =>
+        Effect.fail(
+          new EnvironmentExtendsCycle({
+            filePath: configFilePathOf.environment(parentName),
+            environmentNames: pipe(
+              environmentChain,
+              Arr.drop(cycleStartIndex),
+              Arr.append(parentName),
+            ),
+          }),
+        ),
+    },
+  )
+
+const resolveEnvironment = (
+  environments: Record.ReadonlyRecord<string, Environment>,
+  environmentChain: Arr.NonEmptyReadonlyArray<string>,
+  environment: Environment,
+): EnvironmentResolution =>
+  Option.match(Option.fromUndefinedOr(environment.extends), {
+    onNone: (): EnvironmentResolution => Effect.succeed(ROOT_ENVIRONMENT),
+    onSome: (parentName) => resolveParentEnvironment(environments, environmentChain, parentName),
+  }).pipe(
+    Effect.map((parent) => ({
+      label: environment.label,
+      tools: { ...parent.tools, ...environment.tools },
+      env: { ...parent.env, ...environment.env },
+      tasks: Option.getOrElse(Option.fromUndefinedOr(environment.tasks), () => parent.tasks),
+    })),
   )
 
 const resolveRecipe = Effect.fn('resolveRecipe')(function* (
@@ -616,12 +696,25 @@ export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
   const recipeNames = yield* listNamesByExtension(configDirectory, 'recipes', '.toml')
+  const environments = yield* loadTomlFiles(
+    configDirectory,
+    configNames.environment,
+    configFilePathOf.environment,
+    Environment,
+  )
+
+  yield* Effect.forEach(
+    Record.toEntries(environments),
+    ([environmentName, environment]) =>
+      checkEnvironment(configNames.task, environmentName, environment),
+    { discard: true },
+  )
+
   const config: Config = {
-    environments: yield* loadTomlFiles(
-      configDirectory,
-      configNames.environment,
-      configFilePathOf.environment,
-      Environment,
+    environments: yield* Effect.all(
+      Record.map(environments, (environment, environmentName) =>
+        resolveEnvironment(environments, [environmentName], environment),
+      ),
     ),
     recipes: yield* loadTomlFiles(configDirectory, recipeNames, configFilePathOf.recipe, Recipe),
     mcpServers: yield* loadTomlFiles(
@@ -637,11 +730,6 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     homeSets: yield* loadHomeSets(configDirectory, configNames.home),
   }
 
-  yield* Effect.forEach(
-    Record.toEntries(config.environments),
-    ([environmentName, environment]) => checkEnvironment(config, environmentName, environment),
-    { discard: true },
-  )
   const recipes = yield* Effect.all(
     Record.map(config.recipes, (recipe, recipeName) => resolveRecipe(config, recipeName, recipe)),
   )

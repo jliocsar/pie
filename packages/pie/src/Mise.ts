@@ -6,7 +6,7 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
-import type { Environment, ToolRequest } from './ConfigRepo.ts'
+import type { ResolvedEnvironment, ToolRequest } from './ConfigRepo.ts'
 import {
   configHome,
   EXECUTABLE_FILE_MODE,
@@ -79,7 +79,7 @@ const tomlTableOf = (tableName: string, tomlValues: Record.ReadonlyRecord<string
   ),
 ]
 
-const miseConfigOf = (environment: Environment) =>
+const miseConfigOf = (environment: ResolvedEnvironment) =>
   [
     ...tomlTableOf('tools', Record.map(environment.tools, tomlInlineTableOf)),
     ...tomlTableOf(
@@ -103,7 +103,7 @@ const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* () 
   yield* runCommand(['sh', installerPath])
 }, Effect.scoped)
 
-export const installTools = Effect.fn('installTools')(function* (environment: Environment) {
+export const installTools = Effect.fn('installTools')(function* (environment: ResolvedEnvironment) {
   const path = yield* Path.Path
   const home = yield* homeDirectory
 

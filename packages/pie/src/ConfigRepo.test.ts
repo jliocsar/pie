@@ -10,6 +10,7 @@ import {
   ConfigFileUnparseable,
   ConfigNameMismatch,
   ConfigReferenceMissing,
+  EnvironmentExtendsCycle,
   FrontmatterMissing,
   HomeFileAppendOnly,
   HomePathPieOwned,
@@ -142,6 +143,46 @@ describe('loadConfig', () => {
       }),
     ))
 
+  test('an environment extends its parent through the whole chain, child keys winning', () =>
+    bunServicesRuntime.runPromise(
+      Effect.gen(function* () {
+        const config = yield* loadConfigFrom({
+          ...VALID_CONFIG_FILES,
+          'environments/node.toml':
+            'extends = "personal"\nlabel = "Node"\n\n[tools]\nnode = "25.0.0"\n\n[env]\nNODE_ENV = "development"\n',
+          'environments/web.toml':
+            'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n',
+        })
+
+        expect(config.environments['node']?.tasks).toEqual(['workspace', 'work/setup-gcloud'])
+        expect(config.environments['web']).toEqual({
+          label: 'Web',
+          tools: { node: { version: '25.0.0' }, 'github:dmtrKovalenko/fff': { version: '0.11.0' } },
+          env: { GH_HOST: 'github.int.exe.xyz', NODE_ENV: 'development' },
+          tasks: ['workspace'],
+        })
+      }),
+    ))
+
+  test('an environment that extends itself through a chain fails naming the loop', () =>
+    bunServicesRuntime.runPromise(
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          loadConfigFrom({
+            ...VALID_CONFIG_FILES,
+            'environments/personal.toml': `extends = "web"\n${ENVIRONMENT_TOML}`,
+            'environments/node.toml': 'extends = "personal"\nlabel = "Node"\n',
+            'environments/web.toml': 'extends = "node"\nlabel = "Web"\n',
+          }),
+        )
+
+        expect(error).toBeInstanceOf(EnvironmentExtendsCycle)
+        expect(error.message).toBe(
+          'environments/node.toml extends itself through node -> personal -> web -> node. Remove one of those extends.',
+        )
+      }),
+    ))
+
   test.each([
     {
       description: 'a recipe agent typo',
@@ -186,6 +227,14 @@ describe('loadConfig', () => {
       },
       message:
         'environments/personal.toml lists task "workspac", but tasks/workspac doesn\'t exist.',
+    },
+    {
+      description: 'an environment extends typo',
+      overrides: {
+        'environments/node.toml': 'extends = "persona"\nlabel = "Node"\n',
+      },
+      message:
+        'environments/node.toml lists environment "persona", but environments/persona.toml doesn\'t exist.',
     },
   ])('$description fails naming the file and the missing name', ({ overrides, message }) =>
     bunServicesRuntime.runPromise(
