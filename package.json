@@ -10,8 +10,8 @@
     "test": "bun run --filter '*' --if-present test",
     "typecheck": "bun run --filter '*' --if-present typecheck",
     "build": "bun run --filter '*' --if-present build",
-    "lint": "oxlint --deny-warnings --no-error-on-unmatched-pattern",
-    "lint:fix": "oxlint --fix --deny-warnings --no-error-on-unmatched-pattern",
+    "lint": "oxlint --deny-warnings",
+    "lint:fix": "oxlint --fix --deny-warnings",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "prepare": "husky && effect-tsgo patch --oxlint"
