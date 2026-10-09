@@ -15,6 +15,7 @@ import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
+import { RoutineNotFound, RoutineRecipeMismatch } from './commands/Pod.ts'
 import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
@@ -35,6 +36,14 @@ import {
 
 const FAKE_MISE_SCRIPT = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/mise-calls"
+`
+
+const FAKE_CRONTAB_SCRIPT = `#!/bin/sh
+printf '%s\\n' "$*" >> "$HOME/crontab-calls"
+case "$1" in
+  -l) if [ -f "$HOME/crontab" ]; then cat "$HOME/crontab"; else echo "no crontab for pod" >&2; exit 1; fi ;;
+  -) cat > "$HOME/crontab" ;;
+esac
 `
 
 const EXECUTABLE_FILE_MODE = 0o755
@@ -84,10 +93,17 @@ const reflectionAnswering = (vmTags: readonly string[]) =>
   )
 
 const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) {
+  const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const crontabPath = path.join(temporaryDirectory, 'crontab')
   const { githubDirectory, sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
+
+  yield* fileSystem.writeFileString(crontabPath, FAKE_CRONTAB_SCRIPT, {
+    mode: EXECUTABLE_FILE_MODE,
+  })
+
   const runPieOn = (
     machineName: string,
     commandLine: readonly string[],
@@ -100,7 +116,11 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       Effect.provideService(
         ConfigProvider.ConfigProvider,
         ConfigProvider.fromEnv({
-          env: { HOME: homeOf(machineName), PIE_GITHUB_URL: githubDirectory },
+          env: {
+            HOME: homeOf(machineName),
+            PIE_GITHUB_URL: githubDirectory,
+            PIE_CRONTAB: crontabPath,
+          },
         }),
       ),
     )
@@ -136,6 +156,16 @@ const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
       Arr.filter(Boolean),
       Arr.map((miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>')),
     )
+  }
+
+  return []
+})
+
+const readLinesIfPresent = Effect.fn('readLinesIfPresent')(function* (filePath: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+
+  if (yield* fileSystem.exists(filePath)) {
+    return Arr.filter((yield* fileSystem.readFileString(filePath)).split('\n'), Boolean)
   }
 
   return []
@@ -281,6 +311,7 @@ describe('pie pod up', () => {
           yield* runPieOn('pod', ['pod', 'up'])
 
           const secondMiseCalls = yield* readMiseCalls(home)
+          const crontabCalls = yield* readLinesIfPresent(path.join(home, 'crontab-calls'))
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
           const secondHomeSnapshot = yield* snapshotHomeFiles(home)
           const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
@@ -309,6 +340,7 @@ describe('pie pod up', () => {
             },
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
+          expect(crontabCalls).toEqual(['-l', '-l'])
           expect(miseConfig).toBe(
             '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
@@ -432,6 +464,91 @@ describe('pie pod up', () => {
             new HomeFileNotPies({ filePath: ownStarshipPath, homeName: 'shell' }),
           )
           expect([skillBoxAgentsWritten, mcpBoxClaudeWritten]).toEqual([false, false])
+          expect(miseCalls).toEqual([])
+        }),
+      ),
+    ))
+
+  test("schedules a VM's routines in pie's crontab block, rewriting it only on change", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+          const crontabPath = path.join(home, 'crontab')
+          const routineTags = [...PERSONAL_POD_TAGS, 'pie-routine-triage']
+
+          yield* prepareBox(home)
+          yield* fileSystem.writeFileString(crontabPath, 'MAILTO=""\n')
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY], routineTags)
+
+          const scheduledCrontab = yield* fileSystem.readFileString(crontabPath)
+
+          yield* runPieOn('pod', ['pod', 'up'], routineTags)
+
+          const crontabCallsAfterRerun = yield* readLinesIfPresent(path.join(home, 'crontab-calls'))
+
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          expect(scheduledCrontab).toBe(
+            'MAILTO=""\n# >>> pie: routines >>>\n*/15 * * * * /usr/local/bin/pie routine run triage\n# <<< pie: routines <<<\n',
+          )
+          expect(crontabCallsAfterRerun).toEqual(['-l', '-', '-l'])
+          expect(yield* fileSystem.readFileString(crontabPath)).toBe('MAILTO=""\n')
+        }),
+      ),
+    ))
+
+  test('a routine tag naming a missing routine, or one for another recipe, fails before anything changes', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* Effect.forEach([homeOf('missing-box'), homeOf('mismatch-box')], prepareBox, {
+            discard: true,
+          })
+          yield* commitToConfigSource(
+            sourceDirectory,
+            {
+              'recipes/work.toml': SEED_CONFIG_FILES['recipes/personal.toml'],
+              'routines/standup.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
+                '"personal"',
+                '"work"',
+              ),
+            },
+            [],
+          )
+
+          const missingRoutine = yield* Effect.flip(
+            runPieOn(
+              'missing-box',
+              ['pod', 'up', CONFIG_REPOSITORY],
+              [...PERSONAL_POD_TAGS, 'pie-routine-nightly'],
+            ),
+          )
+          const mismatchedRoutine = yield* Effect.flip(
+            runPieOn(
+              'mismatch-box',
+              ['pod', 'up', CONFIG_REPOSITORY],
+              [...PERSONAL_POD_TAGS, 'pie-routine-standup'],
+            ),
+          )
+          const miseCalls = [
+            ...(yield* readMiseCalls(homeOf('missing-box'))),
+            ...(yield* readMiseCalls(homeOf('mismatch-box'))),
+          ]
+
+          expect(missingRoutine).toEqual(new RoutineNotFound({ routineName: 'nightly' }))
+          expect(mismatchedRoutine).toEqual(
+            new RoutineRecipeMismatch({
+              routineName: 'standup',
+              routineRecipeName: 'work',
+              vmRecipeName: 'personal',
+            }),
+          )
           expect(miseCalls).toEqual([])
         }),
       ),

@@ -141,7 +141,7 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts`, `Claude.ts` and `Crontab.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
 
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 
@@ -369,6 +369,20 @@ finite, in the long form `Duration` reads: `"25 minutes"` parses, but `"25m"` an
 `"0 minutes"`, `"-5 minutes"` and `"Infinity"` all parse, which is why the loader checks the value
 itself (measured on this Effect release). `Duration`'s own formatter prints a short form it can't
 read back, so messages spell out the long form.
+
+A routine VM carries `pie`, its recipe tag and one `pie-routine-<name>` tag per routine. `pod up`
+reads the tags once and gets the recipe and the routines from that one read. Every routine must name
+the VM's recipe, since the recipe's integrations attach to that tag, and a mismatch fails before
+anything is written.
+
+There's no server: each VM schedules its own routines in a marked block of the user's crontab,
+through `crontab -l` and `crontab -`. A central VM calling the others would be cron with network
+hops, and a VM that's down can't take the call anyway. The block is written only when it changed, and
+removed when no routine tags are left. `crontab -l` with no crontab exits 1 saying `no crontab for
+<user>` (measured on exeuntu), which counts as an empty one. The line calls pie by its full install
+path because cron's `PATH` is minimal. It carries no `flock` or `timeout`, because pie owns both, so a
+skipped run still gets logged. `PIE_CRONTAB` swaps the crontab command, which is how the tests fake
+it.
 
 ## Pod up
 

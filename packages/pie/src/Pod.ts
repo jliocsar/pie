@@ -178,7 +178,7 @@ export const withBlock = (text: string, blockMarkers: BlockMarkers, blockContent
   })
 }
 
-const withoutBlock = (text: string, blockMarkers: BlockMarkers) =>
+export const withoutBlock = (text: string, blockMarkers: BlockMarkers) =>
   Option.match(blockRangeOf(text, blockMarkers), {
     onNone: () => text,
     onSome: ({ startIndex, endIndex }) => `${text.slice(0, startIndex)}${text.slice(endIndex)}`,

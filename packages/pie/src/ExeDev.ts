@@ -1,6 +1,7 @@
 import * as Arr from 'effect/Array'
 import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
+import { pipe } from 'effect/Function'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
@@ -59,7 +60,7 @@ export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreacha
   }
 }
 
-export const recipeNameOfThisVm = Effect.gen(function* () {
+export const podTagsOfThisVm = Effect.gen(function* () {
   const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   const { tags } = yield* httpClient.get(REFLECTION_TAGS_URL).pipe(
     Effect.flatMap(HttpClientResponse.schemaBodyJson(VmTags)),
@@ -71,12 +72,18 @@ export const recipeNameOfThisVm = Effect.gen(function* () {
     }),
   )
   const recipeTags = Arr.filter(tags, (tag) => tag.startsWith(RECIPE_TAG_PREFIX))
-
-  return yield* Arr.match(recipeTags, {
+  const recipeName = yield* Arr.match(recipeTags, {
     onEmpty: () => Effect.fail(new RecipeTagMissing({ vmTags: tags })),
     onNonEmpty: ([recipeTag, ...otherRecipeTags]) =>
       Arr.isReadonlyArrayNonEmpty(otherRecipeTags)
         ? Effect.fail(new RecipeTagsConflict({ recipeTags }))
         : Effect.succeed(recipeTag.slice(RECIPE_TAG_PREFIX.length)),
   })
+  const routineNames = pipe(
+    tags,
+    Arr.filter((tag) => tag.startsWith(ROUTINE_TAG_PREFIX)),
+    Arr.map((routineTag) => routineTag.slice(ROUTINE_TAG_PREFIX.length)),
+  )
+
+  return { recipeName, routineNames }
 })
