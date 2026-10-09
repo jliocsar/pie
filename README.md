@@ -21,7 +21,12 @@ Without `<org>/<repo>` the line only installs `pie`.
 pie pod up [<org>/<repo>]   # on a pod: apply its recipe
 pie check [dir]             # validate a config checkout
 pie sync [dir]              # rewrite .pie/schema from the names on disk
+pie routine run <name>      # on a pod: run a routine once (cron calls this)
+pie routine log <name>      # on a pod: list a routine's runs and their sessions
 ```
+
+A routine is a scheduled `claude -p` run. Tag the VM `pie-routine-<name>` too, and `pod up` puts
+`routines/<name>.toml`'s schedule in the VM's crontab.
 
 A config repo gates pushes with a task in its `mise.toml`. The `usage` line takes the arguments git
 passes the hook, which mise would otherwise append to `pie check`:
