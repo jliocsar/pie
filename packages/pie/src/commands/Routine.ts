@@ -1,8 +1,10 @@
+import * as Arr from 'effect/Array'
 import * as Console from 'effect/Console'
 import * as Crypto from 'effect/Crypto'
 import * as DateTime from 'effect/DateTime'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import { pipe } from 'effect/Function'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
@@ -19,6 +21,10 @@ import { homeDirectory, PodFileUnreadable, PRIVATE_DIRECTORY_MODE, stateHome } f
 import { RoutineNotFound } from './Pod.ts'
 
 const PROCESS_DIRECTORY = '/proc'
+const LINE_BREAK = '\n'
+const COLUMN_GAP = '  '
+const MISSING_CELL = '-'
+const DATE_TIME_LENGTH = 19
 
 export const BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id'
 
@@ -55,6 +61,15 @@ const RunLock = Schema.Struct({ pid: Schema.Int, runId: Schema.String, bootId: S
 type RunLock = typeof RunLock.Type
 
 export const RunLockJson = Schema.fromJsonString(RunLock)
+
+export class RunLogLineUnreadable extends Schema.TaggedError<RunLogLineUnreadable>()(
+  'RunLogLineUnreadable',
+  { filePath: Schema.String, lineNumber: Schema.Int, issueMessage: Schema.String },
+) {
+  override get message(): string {
+    return `Line ${this.lineNumber} of ${this.filePath} isn't a run event pie wrote: ${this.issueMessage}. Fix or delete that line.`
+  }
+}
 
 export class RoutineRunUnsuccessful extends Schema.TaggedError<RoutineRunUnsuccessful>()(
   'RoutineRunUnsuccessful',
@@ -280,6 +295,112 @@ const runRoutine = Effect.fn('runRoutine')(function* (routineName: string) {
   return yield* Console.log(`Routine ${routineName} succeeded in session ${sessionId}.`)
 })
 
+const readRunEvents = Effect.fn('readRunEvents')(function* (runLogPath: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+
+  if (!(yield* fileSystem.exists(runLogPath))) {
+    return []
+  }
+
+  const numberedLines = pipe(
+    (yield* fileSystem.readFileString(runLogPath)).split(LINE_BREAK),
+    Arr.map((line, lineIndex) => ({ line, lineNumber: lineIndex + 1 })),
+    Arr.filter(({ line }) => line !== ''),
+  )
+
+  return yield* Effect.forEach(numberedLines, ({ line, lineNumber }) =>
+    Schema.decodeEffect(RunEventJson)(line).pipe(
+      Effect.catchTag('SchemaError', (schemaError) =>
+        Effect.fail(
+          new RunLogLineUnreadable({
+            filePath: runLogPath,
+            lineNumber,
+            issueMessage: schemaError.message,
+          }),
+        ),
+      ),
+    ),
+  )
+})
+
+const runningRunIdOf = Effect.fn('runningRunIdOf')(function* (runLockPath: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+
+  if (!(yield* fileSystem.exists(runLockPath))) {
+    return Option.none<string>()
+  }
+
+  const heldRunLock = yield* readRunLock(runLockPath)
+
+  return (yield* isRunAlive(heldRunLock)) ? Option.some(heldRunLock.runId) : Option.none()
+})
+
+const formatDateTime = (dateTime: DateTime.Utc) =>
+  DateTime.formatIso(dateTime).slice(0, DATE_TIME_LENGTH).replace('T', ' ')
+
+const runRowOf =
+  (runningRunId: Option.Option<string>) =>
+  ([firstRunEvent, ...laterRunEvents]: Arr.NonEmptyReadonlyArray<RunEvent>) => {
+    const runEvents = [firstRunEvent, ...laterRunEvents]
+    const started = Arr.findFirst(runEvents, (runEvent) =>
+      runEvent.event === 'started' ? Option.some(runEvent) : Option.none(),
+    )
+    const finished = Arr.findFirst(runEvents, (runEvent) =>
+      runEvent.event === 'finished' ? Option.some(runEvent) : Option.none(),
+    )
+    const unfinishedOutcome = Option.contains(runningRunId, firstRunEvent.run)
+      ? 'running'
+      : 'interrupted'
+
+    return [
+      formatDateTime(firstRunEvent.at),
+      Option.match(finished, {
+        onNone: () => MISSING_CELL,
+        onSome: (finishedEvent) => formatDateTime(finishedEvent.at),
+      }),
+      Option.match(finished, {
+        onNone: () => (firstRunEvent.event === 'skipped' ? 'skipped' : unfinishedOutcome),
+        onSome: (finishedEvent) => finishedEvent.outcome,
+      }),
+      Option.match(started, {
+        onNone: () => MISSING_CELL,
+        onSome: (startedEvent) => startedEvent.sessionId,
+      }),
+    ]
+  }
+
+const renderTable = (rows: readonly (readonly string[])[]) => {
+  const columnWidths = Arr.map(rows[0] ?? [], (_cell, columnIndex) =>
+    Math.max(...Arr.map(rows, (row) => (row[columnIndex] ?? '').length)),
+  )
+
+  return Arr.map(rows, (row) =>
+    Arr.map(row, (cell, columnIndex) => cell.padEnd(columnWidths[columnIndex] ?? 0))
+      .join(COLUMN_GAP)
+      .trimEnd(),
+  ).join(LINE_BREAK)
+}
+
+const showRunLog = Effect.fn('showRunLog')(function* (routineName: string) {
+  const routineFiles = yield* routineFilesOf(routineName)
+  const runEvents = yield* readRunEvents(routineFiles.runLogPath)
+  const runningRunId = yield* runningRunIdOf(routineFiles.runLockPath)
+  const runRows = pipe(
+    Arr.groupBy(runEvents, (runEvent) => runEvent.run),
+    Record.values,
+    Arr.reverse,
+    Arr.map(runRowOf(runningRunId)),
+  )
+
+  if (!Arr.isReadonlyArrayNonEmpty(runRows)) {
+    return yield* Console.log(`Routine ${routineName} hasn't run on this VM yet.`)
+  }
+
+  return yield* Console.log(
+    renderTable([['started (UTC)', 'finished (UTC)', 'outcome', 'session'], ...runRows]),
+  )
+})
+
 export const routine = Command.make('routine').pipe(
   Command.withDescription('Commands for routines, the scheduled claude runs on a routine VM.'),
   Command.withSubcommands([
@@ -292,6 +413,17 @@ export const routine = Command.make('routine').pipe(
     ).pipe(
       Command.withDescription(
         'Run a routine once, from the config pod up last applied. cron calls this; a run while the last one is still going is logged as skipped.',
+      ),
+    ),
+    Command.make(
+      'log',
+      { routineName: Argument.String('name') },
+      Effect.fn(function* ({ routineName }) {
+        yield* showRunLog(routineName)
+      }),
+    ).pipe(
+      Command.withDescription(
+        'List the runs of a routine on this VM, newest first, with the session each one can be resumed from.',
       ),
     ),
   ]),

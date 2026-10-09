@@ -17,7 +17,12 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
 import { RoutineNotFound, RoutineRecipeMismatch } from './commands/Pod.ts'
-import { BOOT_ID_PATH, RoutineRunUnsuccessful, RunLockJson } from './commands/Routine.ts'
+import {
+  BOOT_ID_PATH,
+  RoutineRunUnsuccessful,
+  RunLockJson,
+  RunLogLineUnreadable,
+} from './commands/Routine.ts'
 import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
@@ -809,6 +814,75 @@ describe('pie routine run', () => {
             { event: 'finished', outcome: 'succeeded' },
           ])
           expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
+        }),
+      ),
+    ))
+})
+
+describe('pie routine log', () => {
+  test('lists runs newest first, telling a run still going from one that died', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { output, routineStateDirectory, runPieOn, runRoutine, runLockPathOf } =
+            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
+          const bootId = Str.trim(yield* fileSystem.readFileString(BOOT_ID_PATH))
+          const outcomesOfLastLog = () =>
+            pipe(
+              output.stdout.at(-1) ?? '',
+              (logText) => logText.split('\n'),
+              Arr.map((logLine) => logLine.split(/\s{2,}/u)[2] ?? ''),
+            )
+
+          yield* runRoutine('triage')
+          yield* fileSystem.writeFileString(
+            path.join(routineStateDirectory, 'triage.jsonl'),
+            '{"run":"held","event":"started","at":"2026-10-09T14:15:00.000Z","sessionId":"held-session"}\n',
+            { flag: 'a' },
+          )
+          yield* fileSystem.writeFileString(
+            runLockPathOf('triage'),
+            yield* Schema.encodeEffect(RunLockJson)({ pid: process.pid, runId: 'held', bootId }),
+          )
+          yield* runRoutine('triage')
+          yield* runPieOn('pod', ['routine', 'log', 'triage'])
+
+          const outcomesWhileHeld = outcomesOfLastLog()
+
+          yield* fileSystem.remove(runLockPathOf('triage'))
+          yield* runPieOn('pod', ['routine', 'log', 'triage'])
+
+          expect(outcomesWhileHeld).toEqual(['outcome', 'skipped', 'running', 'succeeded'])
+          expect(outcomesOfLastLog()).toEqual(['outcome', 'skipped', 'interrupted', 'succeeded'])
+          expect(output.stdout.at(-1)?.split('\n')[2]).toBe(
+            `2026-10-09 14:15:00  ${'-'.padEnd(19)}  interrupted  held-session`,
+          )
+        }),
+      ),
+    ))
+
+  test('a line pie did not write fails, naming its line number', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { routineStateDirectory, runPieOn, runRoutine } = yield* startRoutineBox(
+            temporaryDirectory,
+            {},
+            ['triage'],
+          )
+          const runLogPath = path.join(routineStateDirectory, 'triage.jsonl')
+
+          yield* runRoutine('triage')
+          yield* fileSystem.writeFileString(runLogPath, '{"run":"x"}\n', { flag: 'a' })
+
+          const failure = yield* Effect.flip(runPieOn('pod', ['routine', 'log', 'triage']))
+
+          expect(failure).toBeInstanceOf(RunLogLineUnreadable)
+          expect(failure).toMatchObject({ filePath: runLogPath, lineNumber: 3 })
         }),
       ),
     ))

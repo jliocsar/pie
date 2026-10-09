@@ -402,6 +402,11 @@ The run log is append-only JSON lines, one per event (`started` with its session
 its outcome, `skipped`). `started` is written before claude starts, so a crash can't lose a run, and
 the file stays readable with `tail` and `jq` over ssh. pie exits non-zero when a run doesn't succeed.
 
+The log command folds the events into one row per run, newest first. A run that started and never
+finished shows as running while its lock's process is alive, and as interrupted otherwise. It prints
+the whole session id, since a shortened one can't be resumed. A line that doesn't decode fails with
+its line number rather than being skipped.
+
 ## Pod up
 
 On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
