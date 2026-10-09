@@ -35,6 +35,7 @@ const PIE_OWNED_HOME_PATHS = [
   '.config/pie',
   '.config/mise',
   '.cache/pie',
+  '.local/state/pie',
   '.local/bin/pie',
   '.local/bin/mise',
   '.local/share/mise',

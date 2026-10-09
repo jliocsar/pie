@@ -44,7 +44,7 @@ export class RoutineNotFound extends Schema.TaggedError<RoutineNotFound>()('Rout
   routineName: Schema.String,
 }) {
   override get message(): string {
-    return `This VM is tagged ${ROUTINE_TAG_PREFIX}${this.routineName}, but ${configFilePathOf.routine(this.routineName)} doesn't exist in the config repo. Add it, or remove the tag with \`ssh exe.dev tag -d <vm> ${ROUTINE_TAG_PREFIX}${this.routineName}\`.`
+    return `${configFilePathOf.routine(this.routineName)} doesn't exist in the config repo. Add it, or remove this VM's tag with \`ssh exe.dev tag -d <vm> ${ROUTINE_TAG_PREFIX}${this.routineName}\`.`
   }
 }
 

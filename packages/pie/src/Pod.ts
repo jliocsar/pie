@@ -65,6 +65,10 @@ export const cacheHome = Config.String('XDG_CACHE_HOME').pipe(
   Config.orElse(() => homeDirectory.pipe(Config.map((home) => `${home}/.cache`))),
 )
 
+export const stateHome = Config.String('XDG_STATE_HOME').pipe(
+  Config.orElse(() => homeDirectory.pipe(Config.map((home) => `${home}/.local/state`))),
+)
+
 const homeManifestPath = Effect.gen(function* () {
   const path = yield* Path.Path
 

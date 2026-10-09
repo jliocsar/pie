@@ -116,12 +116,20 @@ export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(fu
   )
 })
 
+export const configCheckoutDirectoryOf = Effect.fn('configCheckoutDirectoryOf')(function* (
+  repositoryName: string,
+) {
+  const path = yield* Path.Path
+
+  return path.join(yield* cacheHome, 'pie', repositoryName)
+})
+
 export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
   repositoryName: string,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const checkoutDirectory = path.join(yield* cacheHome, 'pie', repositoryName)
+  const checkoutDirectory = yield* configCheckoutDirectoryOf(repositoryName)
 
   if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
     yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin']).pipe(

@@ -11,11 +11,13 @@ import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
+import * as Str from 'effect/String'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
 import { RoutineNotFound, RoutineRecipeMismatch } from './commands/Pod.ts'
+import { BOOT_ID_PATH, RoutineRunUnsuccessful, RunLockJson } from './commands/Routine.ts'
 import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
@@ -36,6 +38,13 @@ import {
 
 const FAKE_MISE_SCRIPT = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/mise-calls"
+if [ -f "$HOME/claude-hangs" ]; then
+  trap '' TERM
+  sleep 30 &
+  echo $! > "$HOME/claude-child"
+  wait
+fi
+exit "$(cat "$HOME/claude-exit" 2>/dev/null || echo 0)"
 `
 
 const FAKE_CRONTAB_SCRIPT = `#!/bin/sh
@@ -52,6 +61,10 @@ const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
 const TASK_PATH_PATTERN = /^exec -- \/\S*\/(?<taskName>[^/\s]+)$/u
 const TOOL_AND_TASK_CALLS = ['install', 'exec -- <tasks>/workspace']
+const UUID_PATTERN = /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/gu
+
+const TRIAGE_CLAUDE_CALL =
+  'exec -- claude -p Triage issues opened since your last run. --session-id <uuid> --model opus'
 
 const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
@@ -274,6 +287,65 @@ const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
   )(schemaText)
 
   return $defs
+})
+
+const startRoutineBox = Effect.fn('startRoutineBox')(function* (
+  temporaryDirectory: string,
+  routineConfigFiles: Record.ReadonlyRecord<string, string>,
+  routineNames: readonly string[],
+) {
+  const path = yield* Path.Path
+  const pods = yield* startPods(temporaryDirectory)
+  const home = pods.homeOf('pod')
+  const routineTags = [
+    ...PERSONAL_POD_TAGS,
+    ...Arr.map(routineNames, (routineName) => `pie-routine-${routineName}`),
+  ]
+
+  yield* prepareBox(home)
+  yield* commitToConfigSource(pods.sourceDirectory, routineConfigFiles, []).pipe(
+    Effect.when(Effect.succeed(!Record.isEmptyRecord(routineConfigFiles))),
+  )
+  yield* pods.runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY], routineTags)
+
+  const fileSystem = yield* FileSystem.FileSystem
+
+  yield* fileSystem.remove(path.join(home, 'mise-calls'))
+
+  const routineStateDirectory = path.join(home, '.local', 'state', 'pie', 'routines')
+  const runRoutine = (routineName: string) =>
+    pods.runPieOn('pod', ['routine', 'run', routineName], routineTags)
+  const readRunLog = (routineName: string) =>
+    readLinesIfPresent(path.join(routineStateDirectory, `${routineName}.jsonl`)).pipe(
+      Effect.flatMap((runLogLines) =>
+        Effect.forEach(runLogLines, (runLogLine) =>
+          Schema.decodeEffect(
+            Schema.fromJsonString(
+              Schema.Struct({
+                run: Schema.String,
+                event: Schema.String,
+                outcome: Schema.optionalKey(Schema.String),
+              }),
+            ),
+          )(runLogLine),
+        ),
+      ),
+    )
+  const readClaudeCalls = readMiseCalls(home).pipe(
+    Effect.map(Arr.map((miseCall) => miseCall.replace(UUID_PATTERN, '<uuid>'))),
+  )
+  const runLockPathOf = (routineName: string) =>
+    path.join(routineStateDirectory, `${routineName}.lock`)
+
+  return {
+    ...pods,
+    home,
+    routineStateDirectory,
+    runRoutine,
+    readRunLog,
+    readClaudeCalls,
+    runLockPathOf,
+  }
 })
 
 afterAll(() => bunServicesRuntime.dispose())
@@ -599,6 +671,144 @@ describe('pie pod up', () => {
             { repositoryName: 'jliocsar/pie', integrationTag: 'pie-recipe-personal' },
           ])
           expect(recipeRepositoryFailure).toBeInstanceOf(RepositoryUnreachable)
+        }),
+      ),
+    ))
+})
+
+describe('pie routine run', () => {
+  test('runs claude through mise with the session id, and logs the run as started then succeeded', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const { output, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
+            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
+
+          yield* runRoutine('triage')
+
+          const runLog = yield* readRunLog('triage')
+
+          expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
+          expect(runLog).toMatchObject([
+            { event: 'started' },
+            { event: 'finished', outcome: 'succeeded' },
+          ])
+          expect(runLog[0]?.run).toBe(runLog[1]?.run ?? '')
+          expect(yield* fileSystem.exists(runLockPathOf('triage'))).toBe(false)
+          expect(output.stdout.at(-1)).toStartWith('Routine triage succeeded in session ')
+        }),
+      ),
+    ))
+
+  test('a claude exiting non-zero logs the run as failed and fails pie', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { home, runRoutine, readRunLog } = yield* startRoutineBox(temporaryDirectory, {}, [
+            'triage',
+          ])
+
+          yield* fileSystem.writeFileString(path.join(home, 'claude-exit'), '3\n')
+
+          const failure = yield* Effect.flip(runRoutine('triage'))
+
+          expect(failure).toBeInstanceOf(RoutineRunUnsuccessful)
+          expect(failure).toMatchObject({ routineName: 'triage', outcome: 'failed' })
+          expect(yield* readRunLog('triage')).toMatchObject([
+            { event: 'started' },
+            { event: 'finished', outcome: 'failed' },
+          ])
+        }),
+      ),
+    ))
+
+  test('a run past its timeout is killed with everything it started, and logged as timed out', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { home, runRoutine, readRunLog } = yield* startRoutineBox(
+            temporaryDirectory,
+            {
+              'routines/quick.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
+                '"25 minutes"',
+                '"1 second"',
+              ),
+            },
+            ['quick'],
+          )
+
+          yield* fileSystem.writeFileString(path.join(home, 'claude-hangs'), '')
+
+          const failure = yield* Effect.flip(runRoutine('quick'))
+          const claudeChildPid = Str.trim(
+            yield* fileSystem.readFileString(path.join(home, 'claude-child')),
+          )
+
+          expect(failure).toMatchObject({ routineName: 'quick', outcome: 'timed-out' })
+          expect(yield* readRunLog('quick')).toMatchObject([
+            { event: 'started' },
+            { event: 'finished', outcome: 'timed-out' },
+          ])
+          expect(yield* fileSystem.exists(path.join('/proc', claudeChildPid))).toBe(false)
+        }),
+      ),
+    ))
+
+  test('a run while the last one holds the lock is logged as skipped, and runs no claude', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const { routineStateDirectory, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
+            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
+          const bootId = Str.trim(yield* fileSystem.readFileString(BOOT_ID_PATH))
+          const heldRunLock = yield* Schema.encodeEffect(RunLockJson)({
+            pid: process.pid,
+            runId: 'held',
+            bootId,
+          })
+
+          yield* fileSystem.makeDirectory(routineStateDirectory, { recursive: true })
+          yield* fileSystem.writeFileString(runLockPathOf('triage'), heldRunLock)
+          yield* runRoutine('triage')
+
+          expect(yield* readRunLog('triage')).toMatchObject([{ event: 'skipped' }])
+          expect(yield* readClaudeCalls).toEqual([])
+          expect(yield* fileSystem.readFileString(runLockPathOf('triage'))).toBe(heldRunLock)
+        }),
+      ),
+    ))
+
+  test('a lock left by a run that died is logged as interrupted, then the routine runs', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const { routineStateDirectory, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
+            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
+
+          yield* fileSystem.makeDirectory(routineStateDirectory, { recursive: true })
+          yield* fileSystem.writeFileString(
+            runLockPathOf('triage'),
+            yield* Schema.encodeEffect(RunLockJson)({
+              pid: process.pid,
+              runId: 'died',
+              bootId: 'an-earlier-boot',
+            }),
+          )
+          yield* runRoutine('triage')
+
+          expect(yield* readRunLog('triage')).toMatchObject([
+            { run: 'died', event: 'finished', outcome: 'interrupted' },
+            { event: 'started' },
+            { event: 'finished', outcome: 'succeeded' },
+          ])
+          expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
         }),
       ),
     ))

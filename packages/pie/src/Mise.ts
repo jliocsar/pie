@@ -32,7 +32,7 @@ export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandF
   }
 }
 
-const misePath = Effect.gen(function* () {
+export const misePath = Effect.gen(function* () {
   const path = yield* Path.Path
 
   return path.join(yield* homeDirectory, '.local', 'bin', 'mise')

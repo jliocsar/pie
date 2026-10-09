@@ -384,6 +384,24 @@ path because cron's `PATH` is minimal. It carries no `flock` or `timeout`, becau
 skipped run still gets logged. `PIE_CRONTAB` swaps the crontab command, which is how the tests fake
 it.
 
+A run reads the config checkout `pod up` last applied, without fetching it, so `pod up` stays the
+only thing that changes the box. It runs claude through `mise exec` from home, like tasks, with a
+session id pie picks so every run can be resumed.
+
+The lock is a file created exclusively, holding the run's pid, its run id and the kernel's boot id.
+If the lock is held by a live process, the run is logged as skipped. Otherwise the held run is
+logged as interrupted and the lock is taken over. The boot id is there because a VM restored after a
+host failure starts its pids over, and a stale pid could belong to some other live process.
+
+On timeout, pie kills claude's whole process group with SIGKILL. With SIGTERM, the spawner waits a
+second and never escalates, so a child that ignores TERM survives. With SIGKILL, a TERM-trapping
+parent and its grandchild both died (measured on Bun's spawner). A process that starts its own
+session leaves the group and would survive.
+
+The run log is append-only JSON lines, one per event (`started` with its session id, `finished` with
+its outcome, `skipped`). `started` is written before claude starts, so a crash can't lose a run, and
+the file stays readable with `tail` and `jq` over ssh. pie exits non-zero when a run doesn't succeed.
+
 ## Pod up
 
 On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
