@@ -114,7 +114,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const crontabPath = path.join(temporaryDirectory, 'crontab')
-  const { githubDirectory, sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
+  const { sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
 
@@ -136,7 +136,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
         ConfigProvider.fromEnv({
           env: {
             HOME: homeOf(machineName),
-            PIE_GITHUB_URL: githubDirectory,
+            PIE_INTEGRATION_URL: path.join(temporaryDirectory, '{integration}'),
             PIE_CRONTAB: crontabPath,
           },
         }),
@@ -651,18 +651,29 @@ describe('pie pod up', () => {
       ),
     ))
 
-  test('a repository pie cannot clone fails, naming the tag its integration attaches to', () =>
+  test('a repository clones through the integration it names, and one pie cannot clone fails, naming the integration and its tag', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const integrationRepositoryUrl = path.join(
+            temporaryDirectory,
+            'hapana-gh-git',
+            'hapana-hub',
+            'hapana-gcp.git',
+          )
 
           yield* prepareBox(homeOf('pod'))
-          yield* fileSystem.remove(path.join(homeOf('pod'), 'workspace', 'jliocsar', 'pie'), {
-            recursive: true,
-          })
+          yield* runGit(['init', '--quiet', integrationRepositoryUrl])
+          yield* commitToConfigSource(
+            sourceDirectory,
+            {
+              'recipes/personal.toml':
+                'label = "Personal"\nenvironment = "personal"\nrepositories = [\n  { repo = "hapana-hub/hapana-gcp", integration = "hapana-gh-git" },\n  { repo = "hapana-hub/missing", integration = "hapana-gh-git" },\n]\n',
+            },
+            [],
+          )
 
           const configRepositoryFailure = yield* Effect.flip(
             runPieOn('pod', ['pod', 'up', 'jliocsar/missing']),
@@ -670,12 +681,31 @@ describe('pie pod up', () => {
           const recipeRepositoryFailure = yield* Effect.flip(
             runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY]),
           )
+          const clonedRemoteUrl = yield* runGit([
+            '-C',
+            path.join(homeOf('pod'), 'workspace', 'hapana-hub', 'hapana-gcp'),
+            'remote',
+            'get-url',
+            'origin',
+          ])
 
+          expect(Str.trim(clonedRemoteUrl)).toBe(integrationRepositoryUrl)
           expect([configRepositoryFailure, recipeRepositoryFailure]).toMatchObject([
-            { repositoryName: 'jliocsar/missing', integrationTag: 'pie' },
-            { repositoryName: 'jliocsar/pie', integrationTag: 'pie-recipe-personal' },
+            {
+              repositoryName: 'jliocsar/missing',
+              integrationName: 'github',
+              integrationTag: 'pie',
+            },
+            {
+              repositoryName: 'hapana-hub/missing',
+              integrationName: 'hapana-gh-git',
+              integrationTag: 'pie-recipe-personal',
+            },
           ])
           expect(recipeRepositoryFailure).toBeInstanceOf(RepositoryUnreachable)
+          expect(recipeRepositoryFailure.message).toContain(
+            'check that the hapana-gh-git integration is attached to tag:pie-recipe-personal',
+          )
         }),
       ),
     ))

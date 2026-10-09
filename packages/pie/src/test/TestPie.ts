@@ -113,11 +113,10 @@ export const makeConfigSource = Effect.fn('makeConfigSource')(function* (
   temporaryDirectory: string,
 ) {
   const path = yield* Path.Path
-  const githubDirectory = path.join(temporaryDirectory, 'github')
-  const sourceDirectory = path.join(githubDirectory, `${CONFIG_REPOSITORY}.git`)
+  const sourceDirectory = path.join(temporaryDirectory, 'github', `${CONFIG_REPOSITORY}.git`)
 
   yield* runGit(['init', '--quiet', sourceDirectory])
   yield* commitToConfigSource(sourceDirectory, SEED_CONFIG_FILES, SEED_EXECUTABLE_FILE_PATHS)
 
-  return { githubDirectory, sourceDirectory }
+  return { sourceDirectory }
 })

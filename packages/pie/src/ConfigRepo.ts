@@ -12,7 +12,7 @@ import * as Result from 'effect/Result'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
-import { isValidTag, RECIPE_TAG_PREFIX, ROUTINE_TAG_PREFIX } from './ExeDev.ts'
+import { GITHUB_INTEGRATION, isValidTag, RECIPE_TAG_PREFIX, ROUTINE_TAG_PREFIX } from './ExeDev.ts'
 
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
@@ -105,20 +105,42 @@ export type Environment = typeof Environment.Type
 
 export const RepositoryName = Schema.String.check(Schema.isPattern(/^[\w.-]+\/[\w.-]+$/u))
 
-const RepositoryCheckout = Schema.Struct({ repo: RepositoryName, dir: Schema.String })
+const RepositoryTable = Schema.Struct({
+  repo: RepositoryName,
+  dir: Schema.optionalKey(Schema.String),
+  integration: Schema.optionalKey(Schema.String),
+})
+
+const RepositoryCheckout = Schema.Struct({
+  repo: RepositoryName,
+  dir: Schema.String,
+  integration: Schema.String,
+})
 
 export const Repository = Schema.Union([
   RepositoryName.pipe(
     Schema.decodeTo(
-      RepositoryCheckout,
+      RepositoryTable,
       SchemaTransformation.transform({
-        decode: (repo: string) => ({ repo, dir: repo }),
-        encode: (checkout) => checkout.repo,
+        decode: (repo: string) => ({ repo }),
+        encode: (repositoryTable) => repositoryTable.repo,
       }),
     ),
   ),
-  RepositoryCheckout,
-])
+  RepositoryTable,
+]).pipe(
+  Schema.decodeTo(
+    RepositoryCheckout,
+    SchemaTransformation.transform({
+      decode: ({
+        repo,
+        dir = repo,
+        integration = GITHUB_INTEGRATION,
+      }: typeof RepositoryTable.Type) => ({ repo, dir, integration }),
+      encode: (checkout: typeof RepositoryCheckout.Type): typeof RepositoryTable.Type => checkout,
+    }),
+  ),
+)
 
 export type Repository = typeof Repository.Type
 

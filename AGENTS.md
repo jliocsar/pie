@@ -312,11 +312,19 @@ user's cache directory. Each run fetches it and hard-resets it to the remote's H
 cache nobody edits, and a reset can't get stuck on a conflict. Git runs with terminal prompts off
 and stdin closed, so a missing integration fails instead of waiting for a password.
 
-Every clone goes through exe.dev's GitHub integration host: the config repo and each recipe
-repository. The host authenticates by the VM's tags, so no credential lives on the box.
-`PIE_GITHUB_URL` replaces the host, which is how the tests point pie at local bare repos. A clone
-or fetch that fails names the repo and the tag its integration attaches to: `pie` for the config
-repo, the recipe's tag for the rest.
+Every clone goes through an exe.dev integration host, `https://<integration>.int.exe.xyz`. The
+config repo and any recipe repository without an `integration` go through `github`, exe.dev's
+GitHub App, which authenticates by the VM's tags. A repository naming an `integration` goes through
+that one instead: an http-proxy targeting `https://github.com` that injects a PAT as a basic auth
+header, for an org that won't install the App. Either way no credential lives on the box, and the
+clone's remote stays on the integration host.
+
+Git's smart HTTP works through an http-proxy: a clone through one succeeded, and a private repo
+the token can't read answered 403 instead of asking for credentials, so the header arrived
+(measured). `PIE_INTEGRATION_URL` replaces the host, with `{integration}` standing for the name,
+which is how the tests point pie at local bare repos. A clone or fetch that fails names the repo,
+the integration, and the tag that integration attaches to: `pie` for the config repo, the recipe's
+tag for the rest.
 
 ## Checking a config
 

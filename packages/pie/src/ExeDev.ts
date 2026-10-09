@@ -7,8 +7,10 @@ import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
-const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
+const DEFAULT_INTEGRATION_URL = 'https://{integration}.int.exe.xyz'
+const INTEGRATION_PLACEHOLDER = '{integration}'
 
+export const GITHUB_INTEGRATION = 'github'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
 export const RECIPE_TAG_PREFIX = 'pie-recipe-'
@@ -16,9 +18,13 @@ export const ROUTINE_TAG_PREFIX = 'pie-routine-'
 
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
 
-export const githubUrl = Config.String('PIE_GITHUB_URL').pipe(
-  Config.withDefault(DEFAULT_GITHUB_URL),
-)
+export const integrationUrlOf = (integrationName: string) =>
+  Config.String('PIE_INTEGRATION_URL').pipe(
+    Config.withDefault(DEFAULT_INTEGRATION_URL),
+    Config.map((integrationUrl) =>
+      integrationUrl.replaceAll(INTEGRATION_PLACEHOLDER, integrationName),
+    ),
+  )
 
 export const isValidTag = (tag: string) => TAG_PATTERN.test(tag)
 
@@ -53,10 +59,20 @@ export class RecipeTagsConflict extends Schema.TaggedError<RecipeTagsConflict>()
 
 export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreachable>()(
   'RepositoryUnreachable',
-  { repositoryName: Schema.String, integrationTag: Schema.String, gitOutput: Schema.String },
+  {
+    repositoryName: Schema.String,
+    integrationName: Schema.String,
+    integrationTag: Schema.String,
+    gitOutput: Schema.String,
+  },
 ) {
   override get message(): string {
-    return `pie couldn't reach ${this.repositoryName} through exe.dev's GitHub integration. In exe.dev, attach a GitHub integration that reaches it to tag:${this.integrationTag}. git said: ${this.gitOutput.trim()}`
+    const fix =
+      this.integrationName === GITHUB_INTEGRATION
+        ? `In exe.dev, attach a GitHub integration that reaches it to tag:${this.integrationTag}.`
+        : `In exe.dev, check that the ${this.integrationName} integration is attached to tag:${this.integrationTag} and that its token can read the repository.`
+
+    return `pie couldn't reach ${this.repositoryName} through exe.dev's ${this.integrationName} integration. ${fix} git said: ${this.gitOutput.trim()}`
   }
 }
 

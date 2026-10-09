@@ -8,7 +8,13 @@ import * as Str from 'effect/String'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import type { Repository } from './ConfigRepo.ts'
-import { githubUrl, POD_TAG, RECIPE_TAG_PREFIX, RepositoryUnreachable } from './ExeDev.ts'
+import {
+  GITHUB_INTEGRATION,
+  integrationUrlOf,
+  POD_TAG,
+  RECIPE_TAG_PREFIX,
+  RepositoryUnreachable,
+} from './ExeDev.ts'
 import {
   cacheHome,
   configHome,
@@ -65,16 +71,11 @@ export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly stri
 }, Effect.scoped)
 
 const failAsUnreachable =
-  (repositoryName: string, integrationTag: string) => (gitEffect: ReturnType<typeof runGit>) =>
+  (route: { repositoryName: string; integrationName: string; integrationTag: string }) =>
+  (gitEffect: ReturnType<typeof runGit>) =>
     gitEffect.pipe(
       Effect.catchTag('GitCommandFailed', (gitFailure) =>
-        Effect.fail(
-          new RepositoryUnreachable({
-            repositoryName,
-            integrationTag,
-            gitOutput: gitFailure.gitOutput,
-          }),
-        ),
+        Effect.fail(new RepositoryUnreachable({ ...route, gitOutput: gitFailure.gitOutput })),
       ),
     )
 
@@ -131,20 +132,22 @@ export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
   const path = yield* Path.Path
   const checkoutDirectory = yield* configCheckoutDirectoryOf(repositoryName)
 
+  const route = { repositoryName, integrationName: GITHUB_INTEGRATION, integrationTag: POD_TAG }
+
   if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
     yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin']).pipe(
-      failAsUnreachable(repositoryName, POD_TAG),
+      failAsUnreachable(route),
     )
     yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
   } else {
-    const githubBaseUrl = yield* githubUrl
+    const githubBaseUrl = yield* integrationUrlOf(GITHUB_INTEGRATION)
 
     yield* runGit([
       'clone',
       '--quiet',
       `${githubBaseUrl}/${repositoryName}.git`,
       checkoutDirectory,
-    ]).pipe(failAsUnreachable(repositoryName, POD_TAG))
+    ]).pipe(failAsUnreachable(route))
   }
 
   const commit = Str.trim(yield* runGit(['-C', checkoutDirectory, 'rev-parse', 'HEAD']))
@@ -159,22 +162,26 @@ export const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(fu
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const workspaceDirectory = path.join(yield* homeDirectory, 'workspace')
-  const githubBaseUrl = yield* githubUrl
 
   yield* Effect.forEach(
     repositories,
     (repository) => {
       const checkoutPath = path.join(workspaceDirectory, repository.dir)
 
-      return runGit([
-        'clone',
-        '--quiet',
-        `${githubBaseUrl}/${repository.repo}.git`,
-        checkoutPath,
-      ]).pipe(
-        failAsUnreachable(repository.repo, `${RECIPE_TAG_PREFIX}${recipeName}`),
-        Effect.when(Effect.map(fileSystem.exists(checkoutPath), (cloned) => !cloned)),
-      )
+      return Effect.flatMap(integrationUrlOf(repository.integration), (integrationBaseUrl) =>
+        runGit([
+          'clone',
+          '--quiet',
+          `${integrationBaseUrl}/${repository.repo}.git`,
+          checkoutPath,
+        ]).pipe(
+          failAsUnreachable({
+            repositoryName: repository.repo,
+            integrationName: repository.integration,
+            integrationTag: `${RECIPE_TAG_PREFIX}${recipeName}`,
+          }),
+        ),
+      ).pipe(Effect.when(Effect.map(fileSystem.exists(checkoutPath), (cloned) => !cloned)))
     },
     { discard: true },
   )

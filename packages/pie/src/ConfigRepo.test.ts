@@ -34,7 +34,11 @@ GH_HOST = "github.int.exe.xyz"
 
 const RECIPE_TOML = `label = "Personal"
 environment = "personal"
-repositories = ["jliocsar/pie", { repo = "jliocsar/nidus", dir = "nidus" }]
+repositories = [
+  "jliocsar/pie",
+  { repo = "jliocsar/nidus", dir = "nidus" },
+  { repo = "hapana-hub/hapana-gcp", integration = "hapana-gh-git" },
+]
 skills = ["handoff"]
 mcp = ["fff"]
 home = ["shell", { name = "zsh", mode = "append" }]
@@ -115,8 +119,13 @@ describe('loadConfig', () => {
           'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
         })
         expect(config.recipes['personal']?.repositories).toEqual([
-          { repo: 'jliocsar/pie', dir: 'jliocsar/pie' },
-          { repo: 'jliocsar/nidus', dir: 'nidus' },
+          { repo: 'jliocsar/pie', dir: 'jliocsar/pie', integration: 'github' },
+          { repo: 'jliocsar/nidus', dir: 'nidus', integration: 'github' },
+          {
+            repo: 'hapana-hub/hapana-gcp',
+            dir: 'hapana-hub/hapana-gcp',
+            integration: 'hapana-gh-git',
+          },
         ])
         expect(config.recipes['personal']?.home).toEqual([
           {
