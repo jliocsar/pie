@@ -93,6 +93,8 @@
       "rules": {
         "begone-slop/expect-padding": "error",
         "max-lines-per-function": "off",
+        // A test file is a list of independent cases, so its length counts cases, not sprawl.
+        "max-lines": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-confusing-void-expression": "off",
         "typescript/no-unnecessary-type-conversion": "off",

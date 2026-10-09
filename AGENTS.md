@@ -38,7 +38,8 @@ ways already declares two classes, and a service tag makes a third. A cap of one
 module — it scatters one concern across several files and leaves the import graph with nodes that
 exist only to satisfy a linter. Its sibling `max-lines` is raised from a default of 300 (measured) to 1000, for the same
 reason: a line cap relocates code rather than shrinking it, and a module split to sit under
-one is a module the graph did not ask for.
+one is a module the graph did not ask for. Test files are exempt from both line caps: a test file
+is a list of independent cases, so its length counts cases, not sprawl.
 
 :::warning
 `prepare` runs `effect-tsgo patch --oxlint`, which patches the oxlint and TypeScript binaries in
