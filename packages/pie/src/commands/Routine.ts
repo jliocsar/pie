@@ -12,6 +12,7 @@ import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
+import * as Config from 'effect/Config'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import { loadConfig, type Routine } from '../ConfigRepo.ts'
@@ -21,6 +22,8 @@ import { homeDirectory, PodFileUnreadable, PRIVATE_DIRECTORY_MODE, stateHome } f
 import { RoutineNotFound } from './Pod.ts'
 
 const PROCESS_DIRECTORY = '/proc'
+const CRON_PATH = '/usr/bin:/bin'
+const SYSTEM_BINARY_DIRECTORY = '/usr/local/bin'
 const LINE_BREAK = '\n'
 const COLUMN_GAP = '  '
 const MISSING_CELL = '-'
@@ -179,9 +182,17 @@ const takeRunLock = Effect.fn('takeRunLock')(function* (
   return yield* createRunLock(routineFiles.runLockPath, runLock)
 })
 
+const inheritedPath = Config.String('PATH').pipe(Config.withDefault(CRON_PATH))
+
 const runClaude = Effect.fn('runClaude')(function* (routine: Routine, sessionId: string) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const path = yield* Path.Path
   const home = yield* homeDirectory
+  const claudePath = [
+    path.join(home, '.local', 'bin'),
+    SYSTEM_BINARY_DIRECTORY,
+    yield* inheritedPath,
+  ].join(':')
   const claudeArguments = [
     'exec',
     '--',
@@ -198,7 +209,7 @@ const runClaude = Effect.fn('runClaude')(function* (routine: Routine, sessionId:
       ChildProcess.make(yield* misePath, claudeArguments, {
         cwd: home,
         extendEnv: true,
-        env: { HOME: home },
+        env: { HOME: home, PATH: claudePath },
         stdin: 'ignore',
         stdout: 'inherit',
         stderr: 'inherit',

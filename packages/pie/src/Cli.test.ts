@@ -43,6 +43,7 @@ import {
 
 const FAKE_MISE_SCRIPT = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/mise-calls"
+printf '%s\\n' "$PATH" > "$HOME/mise-path"
 if [ -f "$HOME/claude-hangs" ]; then
   trap '' TERM
   sleep 30 &
@@ -717,12 +718,14 @@ describe('pie routine run', () => {
       inFreshDirectory((temporaryDirectory) =>
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
-          const { output, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
+          const path = yield* Path.Path
+          const { home, output, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
             yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
 
           yield* runRoutine('triage')
 
           const runLog = yield* readRunLog('triage')
+          const claudePath = yield* fileSystem.readFileString(path.join(home, 'mise-path'))
 
           expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
           expect(runLog).toMatchObject([
@@ -732,6 +735,7 @@ describe('pie routine run', () => {
           expect(runLog[0]?.run).toBe(runLog[1]?.run ?? '')
           expect(yield* fileSystem.exists(runLockPathOf('triage'))).toBe(false)
           expect(output.stdout.at(-1)).toStartWith('Routine triage succeeded in session ')
+          expect(claudePath).toStartWith(`${home}/.local/bin:/usr/local/bin:`)
         }),
       ),
     ))

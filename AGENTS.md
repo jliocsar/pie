@@ -397,6 +397,11 @@ A run reads the config checkout `pod up` last applied, without fetching it, so `
 only thing that changes the box. It runs claude through `mise exec` from home, like tasks, with a
 session id pie picks so every run can be resumed.
 
+cron's `PATH` is `/usr/bin:/bin`, so `mise exec -- claude` from cron found no claude (measured on
+exeuntu). claude's own installer puts it in `~/.local/bin`, and the image ships one in
+`/usr/local/bin`, so a run puts both ahead of the inherited `PATH`, in that order, matching a login
+shell.
+
 The lock is a file created exclusively, holding the run's pid, its run id and the kernel's boot id.
 If the lock is held by a live process, the run is logged as skipped. Otherwise the held run is
 logged as interrupted and the lock is taken over. The boot id is there because a VM restored after a
