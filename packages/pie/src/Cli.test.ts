@@ -504,6 +504,7 @@ describe('pie sync and pie check', () => {
             'environment',
           )
           const mcpDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'mcp')
+          const routineDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'routine')
 
           expect(recipeDefinitions).toEqual({
             environment: { type: 'string', enum: ['personal'] },
@@ -518,6 +519,7 @@ describe('pie sync and pie check', () => {
             task: { type: 'string', enum: ['workspace'] },
           })
           expect(mcpDefinitions).toEqual({})
+          expect(routineDefinitions).toEqual({ recipe: { type: 'string', enum: ['personal'] } })
           expect(output.stdout).toEqual([
             `Synced ${path.join(sourceDirectory, '.pie/schema')}.`,
             'Config is valid.',
@@ -532,6 +534,23 @@ describe('pie sync and pie check', () => {
       overrides: { 'mcp/fff.toml': 'command = "fff-mcp"\n' },
       errorClass: SchemaLineMissing,
       filePath: 'mcp/fff.toml',
+    },
+    {
+      description: 'a routine without its #:schema line',
+      overrides: {
+        'routines/triage.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
+          '#:schema ../.pie/schema/routine.json\n',
+          '',
+        ),
+      },
+      errorClass: SchemaLineMissing,
+      filePath: 'routines/triage.toml',
+    },
+    {
+      description: 'a recipe added without a sync',
+      overrides: { 'recipes/work.toml': SEED_CONFIG_FILES['recipes/personal.toml'] },
+      errorClass: SchemaFileStale,
+      filePath: '.pie/schema/routine.json',
     },
     {
       description: 'a skill added without a sync',

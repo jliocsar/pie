@@ -1,4 +1,6 @@
 import * as Arr from 'effect/Array'
+import * as Cron from 'effect/Cron'
+import * as Duration from 'effect/Duration'
 import { pipe } from 'effect/Function'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
@@ -6,10 +8,11 @@ import * as Option from 'effect/Option'
 import * as Order from 'effect/Order'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
+import * as Result from 'effect/Result'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
-import { isValidTag, RECIPE_TAG_PREFIX } from './ExeDev.ts'
+import { isValidTag, RECIPE_TAG_PREFIX, ROUTINE_TAG_PREFIX } from './ExeDev.ts'
 
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
@@ -19,6 +22,8 @@ type EnvironmentResolution = Effect.Effect<
 >
 
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
+const CRON_FIELD_SEPARATOR_PATTERN = /\s+/u
+const CRONTAB_FIELD_COUNT = 5
 const TOML_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
 
@@ -39,6 +44,7 @@ const PIE_OWNED_HOME_PATHS = [
 const APPEND_ONLY_HOME_PATHS = ['.profile', '.zshrc']
 
 export const ReferenceKind = Schema.Literals([
+  'recipe',
   'environment',
   'agent',
   'settings',
@@ -154,6 +160,42 @@ export const Recipe = Schema.Struct({
 
 export type Recipe = typeof Recipe.Type
 
+const isCrontabSchedule = (schedule: string) =>
+  schedule.trim().split(CRON_FIELD_SEPARATOR_PATTERN).length === CRONTAB_FIELD_COUNT &&
+  Result.isSuccess(Cron.parse(schedule))
+
+const isPositiveFiniteDuration = (durationText: string) =>
+  Option.exists(
+    Schema.decodeOption(Schema.DurationFromString)(durationText),
+    (duration) => Duration.isFinite(duration) && Duration.isPositive(duration),
+  )
+
+const CrontabSchedule = Schema.String.check(
+  Schema.makeFilter(
+    (schedule: string) =>
+      isCrontabSchedule(schedule) || 'a crontab schedule of 5 fields, like "*/15 * * * *"',
+  ),
+)
+
+const RoutineTimeout = Schema.String.check(
+  Schema.makeFilter(
+    (durationText: string) =>
+      isPositiveFiniteDuration(durationText) ||
+      'a positive duration in long form, like "25 minutes" or "1 hour"',
+  ),
+).pipe(Schema.decodeTo(Schema.DurationFromString))
+
+export const Routine = Schema.Struct({
+  label: Schema.String,
+  recipe: nameOf('recipe'),
+  schedule: CrontabSchedule,
+  timeout: RoutineTimeout,
+  prompt: Schema.String,
+  arguments: withEmptyDefault(Schema.String),
+})
+
+export type Routine = typeof Routine.Type
+
 export const HttpMcpServer = Schema.Struct({ url: Schema.String })
 
 export const StdioMcpServer = Schema.Struct({
@@ -181,6 +223,7 @@ const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings)
 const Config = Schema.Struct({
   environments: Schema.Record(Schema.String, ResolvedEnvironment),
   recipes: Schema.Record(Schema.String, Recipe),
+  routines: Schema.Record(Schema.String, Routine),
   mcpServers: Schema.Record(Schema.String, McpServer),
   agents: Schema.Record(Schema.String, Frontmatter),
   settings: Schema.Record(Schema.String, ClaudeSettings),
@@ -191,13 +234,19 @@ const Config = Schema.Struct({
 
 type Config = typeof Config.Type
 
-export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
+export const tomlSchemas = {
+  recipe: Recipe,
+  routine: Routine,
+  environment: Environment,
+  mcp: McpServer,
+}
 
 export type TomlKind = keyof typeof tomlSchemas
 
 export const configFilePathOf = {
   environment: (environmentName: string) => `environments/${environmentName}.toml`,
   recipe: (recipeName: string) => `recipes/${recipeName}.toml`,
+  routine: (routineName: string) => `routines/${routineName}.toml`,
   mcp: (mcpName: string) => `mcp/${mcpName}.toml`,
   agent: (agentName: string) => `claude/agents/${agentName}.md`,
   settings: (settingsName: string) => `claude/settings/${settingsName}.json`,
@@ -288,6 +337,17 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
 ) {
   override get message(): string {
     return `${configFilePathOf.recipe(this.recipeName)} can't name a recipe, since ${RECIPE_TAG_PREFIX}${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
+  }
+}
+
+export class RoutineNameNotTaggable extends Schema.TaggedError<RoutineNameNotTaggable>()(
+  'RoutineNameNotTaggable',
+  {
+    routineName: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${configFilePathOf.routine(this.routineName)} can't name a routine, since ${ROUTINE_TAG_PREFIX}${this.routineName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
   }
 }
 
@@ -404,6 +464,7 @@ const readConfigFile = Effect.fn('readConfigFile')(function* (
 
 export const listConfigNames = Effect.fn('listConfigNames')(function* (configDirectory: string) {
   const configNames: ConfigNames = {
+    recipe: yield* listNamesByExtension(configDirectory, 'recipes', '.toml'),
     environment: yield* listNamesByExtension(configDirectory, 'environments', '.toml'),
     agent: yield* listNamesByExtension(configDirectory, 'claude/agents', '.md'),
     settings: yield* listNamesByExtension(configDirectory, 'claude/settings', '.json'),
@@ -693,9 +754,20 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
 
 export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
+const checkRoutine = Effect.fn('checkRoutine')(function* (
+  recipes: Record.ReadonlyRecord<string, Recipe>,
+  routineName: string,
+  routine: Routine,
+) {
+  yield* Effect.fail(new RoutineNameNotTaggable({ routineName })).pipe(
+    Effect.when(Effect.succeed(!isValidTag(`${ROUTINE_TAG_PREFIX}${routineName}`))),
+  )
+  yield* lookUpReference(configFilePathOf.routine(routineName), 'recipe', recipes)(routine.recipe)
+})
+
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
-  const recipeNames = yield* listNamesByExtension(configDirectory, 'recipes', '.toml')
+  const routineNames = yield* listNamesByExtension(configDirectory, 'routines', '.toml')
   const environments = yield* loadTomlFiles(
     configDirectory,
     configNames.environment,
@@ -716,7 +788,18 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
         resolveEnvironment(environments, [environmentName], environment),
       ),
     ),
-    recipes: yield* loadTomlFiles(configDirectory, recipeNames, configFilePathOf.recipe, Recipe),
+    recipes: yield* loadTomlFiles(
+      configDirectory,
+      configNames.recipe,
+      configFilePathOf.recipe,
+      Recipe,
+    ),
+    routines: yield* loadTomlFiles(
+      configDirectory,
+      routineNames,
+      configFilePathOf.routine,
+      Routine,
+    ),
     mcpServers: yield* loadTomlFiles(
       configDirectory,
       configNames.mcp,
@@ -732,6 +815,12 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
 
   const recipes = yield* Effect.all(
     Record.map(config.recipes, (recipe, recipeName) => resolveRecipe(config, recipeName, recipe)),
+  )
+
+  yield* Effect.forEach(
+    Record.toEntries(config.routines),
+    ([routineName, routine]) => checkRoutine(config.recipes, routineName, routine),
+    { discard: true },
   )
 
   return { ...config, recipes }

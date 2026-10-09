@@ -23,6 +23,14 @@ home = ["shell", { name = "zsh", mode = "append" }]
 agents = ["oracle"]
 settings = "default"
 `,
+  'routines/triage.toml': `#:schema ../.pie/schema/routine.json
+label = "Triage new issues"
+recipe = "personal"
+schedule = "*/15 * * * *"
+timeout = "25 minutes"
+prompt = "Triage issues opened since your last run."
+arguments = ["--model", "opus"]
+`,
   'environments/personal.toml': `#:schema ../.pie/schema/environment.json
 label = "Personal"
 tasks = ["workspace"]

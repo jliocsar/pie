@@ -84,6 +84,7 @@ export const check = Command.make(
 
     const tomlNames: Record.ReadonlyRecord<TomlKind, readonly string[]> = {
       recipe: Record.keys(config.recipes),
+      routine: Record.keys(config.routines),
       environment: Record.keys(config.environments),
       mcp: Record.keys(config.mcpServers),
     }

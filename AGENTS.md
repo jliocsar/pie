@@ -219,7 +219,8 @@ This is why `statement-order` leaves a type alias containing `typeof` unranked: 
 sort above constants, which would force every schema type away from its schema.
 :::
 
-- Errors are `Schema.TaggedErrorClass` with a `message` getter: full sentence, names the fix where
+- Errors are `Schema.TaggedError` with a `message` getter. This release has no `TaggedErrorClass`,
+  whatever the `effect-best-practices` skill says. The getter's message is a full sentence, names the fix where
   possible. One reporter prints `error.message`; an error without one exits silently.
 - Module-level primitive constants are `SCREAMING_SNAKE_CASE` — they are the knobs and magic values,
   and the casing separates them from computed bindings. **Not enforced**: oxlint has no
@@ -355,6 +356,19 @@ argument the script runs `pod up` right after the install; without one it only i
 
 `PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
 `file://`, which curl reads.
+
+## Routines
+
+A routine is a headless `claude -p` run on a schedule, one TOML file per routine. It names a
+recipe, and that reference becomes an enum through sync like every other name. Its name must fit
+after `pie-routine-` in an exe.dev tag, the same rule recipes follow.
+
+The schedule must have exactly 5 fields, because crontab has no seconds field and `effect/Cron`
+accepts 6. The timeout has no default, since nobody has measured a good one. It must be positive and
+finite, in the long form `Duration` reads: `"25 minutes"` parses, but `"25m"` and `"1h30m"` don't.
+`"0 minutes"`, `"-5 minutes"` and `"Infinity"` all parse, which is why the loader checks the value
+itself (measured on this Effect release). `Duration`'s own formatter prints a short form it can't
+read back, so messages spell out the long form.
 
 ## Pod up
 

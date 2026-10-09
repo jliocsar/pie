@@ -11,6 +11,7 @@ const DEFAULT_GITHUB_URL = 'https://github.int.exe.xyz'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
 export const RECIPE_TAG_PREFIX = 'pie-recipe-'
+export const ROUTINE_TAG_PREFIX = 'pie-routine-'
 
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
 
