@@ -359,12 +359,21 @@ A failure names its step through an `EXIT` trap reading the current step's name,
 `step || report`: POSIX sh turns `set -e` off inside anything on the left of `||`, so the step
 would keep going after its first failure.
 
-pie installs into `/usr/local/bin` through sudo. A plain `ssh vm cmd` gets a `PATH` without
-`~/.local/bin` (measured on exeuntu), and `pod up` has to run from there. With an `<org>/<repo>`
+pie installs through mise, with `mise use --global`, so it updates itself the way every pod tool
+does. There's no self-update command, because mise is the updater. A plain `ssh vm cmd` gets a
+`PATH` without `~/.local/bin` or mise's shims (measured on exeuntu), and `pod up` has to run from
+there. So the script symlinks `/usr/local/bin/pie` to the shim through sudo. The shim is a symlink
+to mise itself, and it works through the extra link: a plain `ssh vm pie --version` with 0.11.0
+installed upgraded to 0.13.0 before running (measured on mise 2026.10.9). With an `<org>/<repo>`
 argument the script runs `pod up` right after the install; without one it only installs pie.
 
-`PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
-`file://`, which curl reads.
+The script puts pie in `minimum_release_age_excludes`. Without that, `latest` resolved to a release
+three back, because the newer two were under a day old (measured). A fresh pod would start behind,
+and auto-update would hold every release for a day. mise's asset detection picks `pie-linux-x64`
+without an `asset_pattern`. arm64 isn't measured.
+
+`PIE_VERSION` picks the version, `latest` by default. An exact one pins pie, and mise never
+updates an exact version.
 
 ## Pod up
 

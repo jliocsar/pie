@@ -1,8 +1,11 @@
 #!/bin/sh
 set -eu
 
-pie_release_url="${PIE_RELEASE_URL:-https://github.com/jliocsar/pie/releases/latest/download}"
+pie_tool=github:jliocsar/pie
+pie_version="${PIE_VERSION:-latest}"
 pie_install_directory="${PIE_INSTALL_DIRECTORY:-/usr/local/bin}"
+mise_path="$HOME/.local/bin/mise"
+mise_shims_directory="$HOME/.local/share/mise/shims"
 current_step=start
 
 report_failed_step() {
@@ -23,25 +26,29 @@ run_as_root() {
   fi
 }
 
+install_mise() {
+  if [ -x "$mise_path" ]; then
+    return
+  fi
+  mise_installer="$(mktemp)"
+  curl -fsSL https://mise.run -o "$mise_installer"
+  sh "$mise_installer" </dev/null
+  rm -f "$mise_installer"
+}
+
 install_pie() {
-  case "$(uname -m)" in
-    x86_64 | amd64) pie_architecture=x64 ;;
-    aarch64 | arm64) pie_architecture=arm64 ;;
-    *)
-      echo "pie setup: no build for $(uname -m), only x86_64 and aarch64." >&2
-      return 1
-      ;;
-  esac
-  pie_download="$(mktemp)"
-  curl -fsSL "$pie_release_url/pie-linux-$pie_architecture" -o "$pie_download"
+  "$mise_path" settings set minimum_release_age_excludes "$pie_tool" </dev/null
+  "$mise_path" use --global "$pie_tool@$pie_version" </dev/null
   run_as_root mkdir -p "$pie_install_directory"
-  run_as_root install -m 755 "$pie_download" "$pie_install_directory/pie"
-  rm -f "$pie_download"
+  run_as_root ln -sf "$mise_shims_directory/pie" "$pie_install_directory/pie"
   "$pie_install_directory/pie" --version
 }
 
 setup_pie() {
   trap report_failed_step EXIT
+
+  current_step="install mise"
+  install_mise
 
   current_step="install pie"
   install_pie

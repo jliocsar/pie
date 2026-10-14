@@ -15,7 +15,8 @@ from that recipe in a config repo:
 curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh -s -- <org>/<repo>
 ```
 
-Without `<org>/<repo>` the line only installs `pie`.
+Without `<org>/<repo>` the line only installs `pie`. It installs through mise, which keeps it
+updated after that, so the line never needs re-running.
 
 ```sh
 pie pod up [<org>/<repo>]   # on a pod: apply its recipe

@@ -102,7 +102,8 @@ The laptop isn't a pod. It edits the config repo and validates it:
    ssh <vm>.exe.xyz 'curl -fsSL https://github.com/jliocsar/pie/releases/latest/download/setup.sh | sh -s -- jliocsar/agents-machines'
    ```
 
-   The same line upgrades pie on an existing pod.
+   pie installs through mise, which updates it on its own. A pod installed before v0.14.0 has a
+   plain binary instead, and re-running the line once moves it to mise.
 
 3. Ask the user to log into `claude` on the box. It's interactive, and it's the one credential that
    lives on a pod.
