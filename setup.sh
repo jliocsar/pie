@@ -38,7 +38,7 @@ install_mise() {
 
 install_pie() {
   "$mise_path" settings set minimum_release_age_excludes "$pie_tool" </dev/null
-  MISE_FETCH_REMOTE_VERSIONS_CACHE=0 "$mise_path" use --global "$pie_tool@$pie_version" </dev/null
+  MISE_FETCH_REMOTE_VERSIONS_CACHE=0 MISE_USE_VERSIONS_HOST=0 "$mise_path" use --global "$pie_tool@$pie_version" </dev/null
   run_as_root mkdir -p "$pie_install_directory"
   run_as_root ln -sf "$mise_shims_directory/pie" "$pie_install_directory/pie"
   "$pie_install_directory/pie" --version
