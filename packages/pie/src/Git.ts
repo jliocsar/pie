@@ -117,20 +117,12 @@ export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(fu
   )
 })
 
-export const configCheckoutDirectoryOf = Effect.fn('configCheckoutDirectoryOf')(function* (
-  repositoryName: string,
-) {
-  const path = yield* Path.Path
-
-  return path.join(yield* cacheHome, 'pie', repositoryName)
-})
-
 export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
   repositoryName: string,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const checkoutDirectory = yield* configCheckoutDirectoryOf(repositoryName)
+  const checkoutDirectory = path.join(yield* cacheHome, 'pie', repositoryName)
 
   const route = { repositoryName, integrationName: GITHUB_INTEGRATION, integrationTag: POD_TAG }
 

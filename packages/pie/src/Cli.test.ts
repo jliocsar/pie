@@ -16,13 +16,6 @@ import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
-import { RoutineNotFound, RoutineRecipeMismatch } from './commands/Pod.ts'
-import {
-  BOOT_ID_PATH,
-  RoutineRunUnsuccessful,
-  RunLockJson,
-  RunLogLineUnreadable,
-} from './commands/Routine.ts'
 import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
@@ -43,22 +36,6 @@ import {
 
 const FAKE_MISE_SCRIPT = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/mise-calls"
-printf '%s\\n' "$PATH" > "$HOME/mise-path"
-if [ -f "$HOME/claude-hangs" ]; then
-  trap '' TERM
-  sleep 30 &
-  echo $! > "$HOME/claude-child"
-  wait
-fi
-exit "$(cat "$HOME/claude-exit" 2>/dev/null || echo 0)"
-`
-
-const FAKE_CRONTAB_SCRIPT = `#!/bin/sh
-printf '%s\\n' "$*" >> "$HOME/crontab-calls"
-case "$1" in
-  -l) if [ -f "$HOME/crontab" ]; then cat "$HOME/crontab"; else echo "no crontab for pod" >&2; exit 1; fi ;;
-  -) cat > "$HOME/crontab" ;;
-esac
 `
 
 const EXECUTABLE_FILE_MODE = 0o755
@@ -67,10 +44,6 @@ const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
 const TASK_PATH_PATTERN = /^exec -- \/\S*\/(?<taskName>[^/\s]+)$/u
 const TOOL_AND_TASK_CALLS = ['install', 'exec -- <tasks>/workspace']
-const UUID_PATTERN = /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/gu
-
-const TRIAGE_CLAUDE_CALL =
-  'exec -- claude -p Triage issues opened since your last run. --session-id <uuid> --model opus'
 
 const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
@@ -112,17 +85,10 @@ const reflectionAnswering = (vmTags: readonly string[]) =>
   )
 
 const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) {
-  const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const crontabPath = path.join(temporaryDirectory, 'crontab')
   const { sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
-
-  yield* fileSystem.writeFileString(crontabPath, FAKE_CRONTAB_SCRIPT, {
-    mode: EXECUTABLE_FILE_MODE,
-  })
-
   const runPieOn = (
     machineName: string,
     commandLine: readonly string[],
@@ -138,7 +104,6 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
           env: {
             HOME: homeOf(machineName),
             PIE_INTEGRATION_URL: path.join(temporaryDirectory, '{integration}'),
-            PIE_CRONTAB: crontabPath,
           },
         }),
       ),
@@ -175,16 +140,6 @@ const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
       Arr.filter(Boolean),
       Arr.map((miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>')),
     )
-  }
-
-  return []
-})
-
-const readLinesIfPresent = Effect.fn('readLinesIfPresent')(function* (filePath: string) {
-  const fileSystem = yield* FileSystem.FileSystem
-
-  if (yield* fileSystem.exists(filePath)) {
-    return Arr.filter((yield* fileSystem.readFileString(filePath)).split('\n'), Boolean)
   }
 
   return []
@@ -295,65 +250,6 @@ const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
   return $defs
 })
 
-const startRoutineBox = Effect.fn('startRoutineBox')(function* (
-  temporaryDirectory: string,
-  routineConfigFiles: Record.ReadonlyRecord<string, string>,
-  routineNames: readonly string[],
-) {
-  const path = yield* Path.Path
-  const pods = yield* startPods(temporaryDirectory)
-  const home = pods.homeOf('pod')
-  const routineTags = [
-    ...PERSONAL_POD_TAGS,
-    ...Arr.map(routineNames, (routineName) => `pie-routine-${routineName}`),
-  ]
-
-  yield* prepareBox(home)
-  yield* commitToConfigSource(pods.sourceDirectory, routineConfigFiles, []).pipe(
-    Effect.when(Effect.succeed(!Record.isEmptyRecord(routineConfigFiles))),
-  )
-  yield* pods.runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY], routineTags)
-
-  const fileSystem = yield* FileSystem.FileSystem
-
-  yield* fileSystem.remove(path.join(home, 'mise-calls'))
-
-  const routineStateDirectory = path.join(home, '.local', 'state', 'pie', 'routines')
-  const runRoutine = (routineName: string) =>
-    pods.runPieOn('pod', ['routine', 'run', routineName], routineTags)
-  const readRunLog = (routineName: string) =>
-    readLinesIfPresent(path.join(routineStateDirectory, `${routineName}.jsonl`)).pipe(
-      Effect.flatMap((runLogLines) =>
-        Effect.forEach(runLogLines, (runLogLine) =>
-          Schema.decodeEffect(
-            Schema.fromJsonString(
-              Schema.Struct({
-                run: Schema.String,
-                event: Schema.String,
-                outcome: Schema.optionalKey(Schema.String),
-              }),
-            ),
-          )(runLogLine),
-        ),
-      ),
-    )
-  const readClaudeCalls = readMiseCalls(home).pipe(
-    Effect.map(Arr.map((miseCall) => miseCall.replace(UUID_PATTERN, '<uuid>'))),
-  )
-  const runLockPathOf = (routineName: string) =>
-    path.join(routineStateDirectory, `${routineName}.lock`)
-
-  return {
-    ...pods,
-    home,
-    routineStateDirectory,
-    runRoutine,
-    readRunLog,
-    readClaudeCalls,
-    runLockPathOf,
-  }
-})
-
 afterAll(() => bunServicesRuntime.dispose())
 
 describe('pie pod up', () => {
@@ -389,7 +285,6 @@ describe('pie pod up', () => {
           yield* runPieOn('pod', ['pod', 'up'])
 
           const secondMiseCalls = yield* readMiseCalls(home)
-          const crontabCalls = yield* readLinesIfPresent(path.join(home, 'crontab-calls'))
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
           const secondHomeSnapshot = yield* snapshotHomeFiles(home)
           const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
@@ -418,7 +313,6 @@ describe('pie pod up', () => {
             },
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
-          expect(crontabCalls).toEqual(['-l', '-l'])
           expect(miseConfig).toBe(
             '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
@@ -547,91 +441,6 @@ describe('pie pod up', () => {
       ),
     ))
 
-  test("schedules a VM's routines in pie's crontab block, rewriting it only on change", () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
-          const home = homeOf('pod')
-          const crontabPath = path.join(home, 'crontab')
-          const routineTags = [...PERSONAL_POD_TAGS, 'pie-routine-triage']
-
-          yield* prepareBox(home)
-          yield* fileSystem.writeFileString(crontabPath, 'MAILTO=""\n')
-          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY], routineTags)
-
-          const scheduledCrontab = yield* fileSystem.readFileString(crontabPath)
-
-          yield* runPieOn('pod', ['pod', 'up'], routineTags)
-
-          const crontabCallsAfterRerun = yield* readLinesIfPresent(path.join(home, 'crontab-calls'))
-
-          yield* runPieOn('pod', ['pod', 'up'])
-
-          expect(scheduledCrontab).toBe(
-            'MAILTO=""\n# >>> pie: routines >>>\n*/15 * * * * /usr/local/bin/pie routine run triage\n# <<< pie: routines <<<\n',
-          )
-          expect(crontabCallsAfterRerun).toEqual(['-l', '-', '-l'])
-          expect(yield* fileSystem.readFileString(crontabPath)).toBe('MAILTO=""\n')
-        }),
-      ),
-    ))
-
-  test('a routine tag naming a missing routine, or one for another recipe, fails before anything changes', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
-
-          yield* Effect.forEach([homeOf('missing-box'), homeOf('mismatch-box')], prepareBox, {
-            discard: true,
-          })
-          yield* commitToConfigSource(
-            sourceDirectory,
-            {
-              'recipes/work.toml': SEED_CONFIG_FILES['recipes/personal.toml'],
-              'routines/standup.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
-                '"personal"',
-                '"work"',
-              ),
-            },
-            [],
-          )
-
-          const missingRoutine = yield* Effect.flip(
-            runPieOn(
-              'missing-box',
-              ['pod', 'up', CONFIG_REPOSITORY],
-              [...PERSONAL_POD_TAGS, 'pie-routine-nightly'],
-            ),
-          )
-          const mismatchedRoutine = yield* Effect.flip(
-            runPieOn(
-              'mismatch-box',
-              ['pod', 'up', CONFIG_REPOSITORY],
-              [...PERSONAL_POD_TAGS, 'pie-routine-standup'],
-            ),
-          )
-          const miseCalls = [
-            ...(yield* readMiseCalls(homeOf('missing-box'))),
-            ...(yield* readMiseCalls(homeOf('mismatch-box'))),
-          ]
-
-          expect(missingRoutine).toEqual(new RoutineNotFound({ routineName: 'nightly' }))
-          expect(mismatchedRoutine).toEqual(
-            new RoutineRecipeMismatch({
-              routineName: 'standup',
-              routineRecipeName: 'work',
-              vmRecipeName: 'personal',
-            }),
-          )
-          expect(miseCalls).toEqual([])
-        }),
-      ),
-    ))
-
   test('a VM without exactly one pie-recipe tag fails, naming its tags', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
@@ -712,216 +521,6 @@ describe('pie pod up', () => {
     ))
 })
 
-describe('pie routine run', () => {
-  test('runs claude through mise with the session id, and logs the run as started then succeeded', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { home, output, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
-            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
-
-          yield* runRoutine('triage')
-
-          const runLog = yield* readRunLog('triage')
-          const claudePath = yield* fileSystem.readFileString(path.join(home, 'mise-path'))
-
-          expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
-          expect(runLog).toMatchObject([
-            { event: 'started' },
-            { event: 'finished', outcome: 'succeeded' },
-          ])
-          expect(runLog[0]?.run).toBe(runLog[1]?.run ?? '')
-          expect(yield* fileSystem.exists(runLockPathOf('triage'))).toBe(false)
-          expect(output.stdout.at(-1)).toStartWith('Routine triage succeeded in session ')
-          expect(claudePath).toStartWith(`${home}/.local/bin:/usr/local/bin:`)
-        }),
-      ),
-    ))
-
-  test('a claude exiting non-zero logs the run as failed and fails pie', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { home, runRoutine, readRunLog } = yield* startRoutineBox(temporaryDirectory, {}, [
-            'triage',
-          ])
-
-          yield* fileSystem.writeFileString(path.join(home, 'claude-exit'), '3\n')
-
-          const failure = yield* Effect.flip(runRoutine('triage'))
-
-          expect(failure).toBeInstanceOf(RoutineRunUnsuccessful)
-          expect(failure).toMatchObject({ routineName: 'triage', outcome: 'failed' })
-          expect(yield* readRunLog('triage')).toMatchObject([
-            { event: 'started' },
-            { event: 'finished', outcome: 'failed' },
-          ])
-        }),
-      ),
-    ))
-
-  test('a run past its timeout is killed with everything it started, and logged as timed out', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { home, runRoutine, readRunLog } = yield* startRoutineBox(
-            temporaryDirectory,
-            {
-              'routines/quick.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
-                '"25 minutes"',
-                '"1 second"',
-              ),
-            },
-            ['quick'],
-          )
-
-          yield* fileSystem.writeFileString(path.join(home, 'claude-hangs'), '')
-
-          const failure = yield* Effect.flip(runRoutine('quick'))
-          const claudeChildPid = Str.trim(
-            yield* fileSystem.readFileString(path.join(home, 'claude-child')),
-          )
-
-          expect(failure).toMatchObject({ routineName: 'quick', outcome: 'timed-out' })
-          expect(yield* readRunLog('quick')).toMatchObject([
-            { event: 'started' },
-            { event: 'finished', outcome: 'timed-out' },
-          ])
-          expect(yield* fileSystem.exists(path.join('/proc', claudeChildPid))).toBe(false)
-        }),
-      ),
-    ))
-
-  test('a run while the last one holds the lock is logged as skipped, and runs no claude', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const { routineStateDirectory, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
-            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
-          const bootId = Str.trim(yield* fileSystem.readFileString(BOOT_ID_PATH))
-          const heldRunLock = yield* Schema.encodeEffect(RunLockJson)({
-            pid: process.pid,
-            runId: 'held',
-            bootId,
-          })
-
-          yield* fileSystem.makeDirectory(routineStateDirectory, { recursive: true })
-          yield* fileSystem.writeFileString(runLockPathOf('triage'), heldRunLock)
-          yield* runRoutine('triage')
-
-          expect(yield* readRunLog('triage')).toMatchObject([{ event: 'skipped' }])
-          expect(yield* readClaudeCalls).toEqual([])
-          expect(yield* fileSystem.readFileString(runLockPathOf('triage'))).toBe(heldRunLock)
-        }),
-      ),
-    ))
-
-  test('a lock left by a run that died is logged as interrupted, then the routine runs', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const { routineStateDirectory, runRoutine, readRunLog, readClaudeCalls, runLockPathOf } =
-            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
-
-          yield* fileSystem.makeDirectory(routineStateDirectory, { recursive: true })
-          yield* fileSystem.writeFileString(
-            runLockPathOf('triage'),
-            yield* Schema.encodeEffect(RunLockJson)({
-              pid: process.pid,
-              runId: 'died',
-              bootId: 'an-earlier-boot',
-            }),
-          )
-          yield* runRoutine('triage')
-
-          expect(yield* readRunLog('triage')).toMatchObject([
-            { run: 'died', event: 'finished', outcome: 'interrupted' },
-            { event: 'started' },
-            { event: 'finished', outcome: 'succeeded' },
-          ])
-          expect(yield* readClaudeCalls).toEqual([TRIAGE_CLAUDE_CALL])
-        }),
-      ),
-    ))
-})
-
-describe('pie routine log', () => {
-  test('lists runs newest first, telling a run still going from one that died', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { output, routineStateDirectory, runPieOn, runRoutine, runLockPathOf } =
-            yield* startRoutineBox(temporaryDirectory, {}, ['triage'])
-          const bootId = Str.trim(yield* fileSystem.readFileString(BOOT_ID_PATH))
-          const outcomesOfLastLog = () =>
-            pipe(
-              output.stdout.at(-1) ?? '',
-              (logText) => logText.split('\n'),
-              Arr.map((logLine) => logLine.split(/\s{2,}/u)[2] ?? ''),
-            )
-
-          yield* runRoutine('triage')
-          yield* fileSystem.writeFileString(
-            path.join(routineStateDirectory, 'triage.jsonl'),
-            '{"run":"held","event":"started","at":"2026-10-09T14:15:00.000Z","sessionId":"held-session"}\n',
-            { flag: 'a' },
-          )
-          yield* fileSystem.writeFileString(
-            runLockPathOf('triage'),
-            yield* Schema.encodeEffect(RunLockJson)({ pid: process.pid, runId: 'held', bootId }),
-          )
-          yield* runRoutine('triage')
-          yield* runPieOn('pod', ['routine', 'log', 'triage'])
-
-          const outcomesWhileHeld = outcomesOfLastLog()
-
-          yield* fileSystem.remove(runLockPathOf('triage'))
-          yield* runPieOn('pod', ['routine', 'log', 'triage'])
-
-          expect(outcomesWhileHeld).toEqual(['outcome', 'skipped', 'running', 'succeeded'])
-          expect(outcomesOfLastLog()).toEqual(['outcome', 'skipped', 'interrupted', 'succeeded'])
-          expect(output.stdout.at(-1)?.split('\n')[2]).toBe(
-            `2026-10-09 14:15:00  ${'-'.padEnd(19)}  interrupted  held-session`,
-          )
-        }),
-      ),
-    ))
-
-  test('a line pie did not write fails, naming its line number', () =>
-    bunServicesRuntime.runPromise(
-      inFreshDirectory((temporaryDirectory) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem
-          const path = yield* Path.Path
-          const { routineStateDirectory, runPieOn, runRoutine } = yield* startRoutineBox(
-            temporaryDirectory,
-            {},
-            ['triage'],
-          )
-          const runLogPath = path.join(routineStateDirectory, 'triage.jsonl')
-
-          yield* runRoutine('triage')
-          yield* fileSystem.writeFileString(runLogPath, '{"run":"x"}\n', { flag: 'a' })
-
-          const failure = yield* Effect.flip(runPieOn('pod', ['routine', 'log', 'triage']))
-
-          expect(failure).toBeInstanceOf(RunLogLineUnreadable)
-          expect(failure).toMatchObject({ filePath: runLogPath, lineNumber: 3 })
-        }),
-      ),
-    ))
-})
-
 describe('pie sync and pie check', () => {
   test('sync writes the names on disk into the schemas, and check accepts the result', () =>
     bunServicesRuntime.runPromise(
@@ -939,7 +538,6 @@ describe('pie sync and pie check', () => {
             'environment',
           )
           const mcpDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'mcp')
-          const routineDefinitions = yield* readSchemaDefinitions(sourceDirectory, 'routine')
 
           expect(recipeDefinitions).toEqual({
             environment: { type: 'string', enum: ['personal'] },
@@ -954,7 +552,6 @@ describe('pie sync and pie check', () => {
             task: { type: 'string', enum: ['workspace'] },
           })
           expect(mcpDefinitions).toEqual({})
-          expect(routineDefinitions).toEqual({ recipe: { type: 'string', enum: ['personal'] } })
           expect(output.stdout).toEqual([
             `Synced ${path.join(sourceDirectory, '.pie/schema')}.`,
             'Config is valid.',
@@ -969,23 +566,6 @@ describe('pie sync and pie check', () => {
       overrides: { 'mcp/fff.toml': 'command = "fff-mcp"\n' },
       errorClass: SchemaLineMissing,
       filePath: 'mcp/fff.toml',
-    },
-    {
-      description: 'a routine without its #:schema line',
-      overrides: {
-        'routines/triage.toml': SEED_CONFIG_FILES['routines/triage.toml'].replace(
-          '#:schema ../.pie/schema/routine.json\n',
-          '',
-        ),
-      },
-      errorClass: SchemaLineMissing,
-      filePath: 'routines/triage.toml',
-    },
-    {
-      description: 'a recipe added without a sync',
-      overrides: { 'recipes/work.toml': SEED_CONFIG_FILES['recipes/personal.toml'] },
-      errorClass: SchemaFileStale,
-      filePath: '.pie/schema/routine.json',
     },
     {
       description: 'a skill added without a sync',

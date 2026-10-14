@@ -65,10 +65,6 @@ export const cacheHome = Config.String('XDG_CACHE_HOME').pipe(
   Config.orElse(() => homeDirectory.pipe(Config.map((home) => `${home}/.cache`))),
 )
 
-export const stateHome = Config.String('XDG_STATE_HOME').pipe(
-  Config.orElse(() => homeDirectory.pipe(Config.map((home) => `${home}/.local/state`))),
-)
-
 const homeManifestPath = Effect.gen(function* () {
   const path = yield* Path.Path
 
@@ -182,7 +178,7 @@ export const withBlock = (text: string, blockMarkers: BlockMarkers, blockContent
   })
 }
 
-export const withoutBlock = (text: string, blockMarkers: BlockMarkers) =>
+const withoutBlock = (text: string, blockMarkers: BlockMarkers) =>
   Option.match(blockRangeOf(text, blockMarkers), {
     onNone: () => text,
     onSome: ({ startIndex, endIndex }) => `${text.slice(0, startIndex)}${text.slice(endIndex)}`,

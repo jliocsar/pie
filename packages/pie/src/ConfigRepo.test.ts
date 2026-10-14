@@ -1,6 +1,5 @@
 import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
-import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
@@ -18,7 +17,6 @@ import {
   HomePathsOverlap,
   loadConfig,
   RecipeNameNotTaggable,
-  RoutineNameNotTaggable,
 } from './ConfigRepo.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
@@ -48,15 +46,6 @@ agents = ["oracle"]
 settings = "default"
 `
 
-const ROUTINE_TOML = `label = "Triage new issues"
-recipe = "personal"
-schedule = "*/15 * * * *"
-timeout = "25 minutes"
-prompt = "Triage issues opened since your last run."
-`
-
-const ROUTINE_TIMEOUT_MILLISECONDS = 1_500_000
-
 const AGENT_MARKDOWN = `---
 name: Oracle, my Oracle
 description: deep codebase questions, read-only
@@ -68,7 +57,6 @@ You are...
 const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
   'environments/personal.toml': ENVIRONMENT_TOML,
   'recipes/personal.toml': RECIPE_TOML,
-  'routines/triage.toml': ROUTINE_TOML,
   'mcp/fff.toml': 'command = "fff-mcp"\n',
   'mcp/executor.toml': 'url = "http://executor.int.exe.xyz/mcp"\n',
   'claude/agents/oracle.md': AGENT_MARKDOWN,
@@ -143,14 +131,6 @@ describe('loadConfig', () => {
         })
         expect(Record.keys(config.skills)).toEqual(['handoff'])
         expect(config.tasks).toEqual(['work/setup-gcloud', 'workspace'])
-        expect(config.routines['triage']).toMatchObject({
-          recipe: 'personal',
-          schedule: '*/15 * * * *',
-          arguments: [],
-        })
-        expect(Duration.toMillis(config.routines['triage']?.timeout ?? Duration.zero)).toBe(
-          ROUTINE_TIMEOUT_MILLISECONDS,
-        )
       }),
     ))
 
@@ -258,14 +238,6 @@ describe('loadConfig', () => {
         'environments/personal.toml lists task "workspac", but tasks/workspac doesn\'t exist.',
     },
     {
-      description: 'a routine recipe typo',
-      overrides: {
-        'routines/triage.toml': ROUTINE_TOML.replace('"personal"', '"persona"'),
-      },
-      message:
-        'routines/triage.toml lists recipe "persona", but recipes/persona.toml doesn\'t exist.',
-    },
-    {
       description: 'an environment extends typo',
       overrides: {
         'environments/node.toml': 'extends = "persona"\nlabel = "Node"\n',
@@ -339,30 +311,6 @@ describe('loadConfig', () => {
       errorClass: RecipeNameNotTaggable,
       filePath: 'recipes/Work.toml',
     },
-    {
-      description: 'a routine name no exe.dev tag can hold',
-      overrides: { 'routines/Triage.toml': ROUTINE_TOML },
-      errorClass: RoutineNameNotTaggable,
-      filePath: 'routines/Triage.toml',
-    },
-    ...[
-      [
-        'a schedule with a seconds field',
-        'schedule = "*/15 * * * *"',
-        'schedule = "0 */15 * * * *"',
-      ],
-      ['a schedule that is not cron', 'schedule = "*/15 * * * *"', 'schedule = "every hour"'],
-      ['a timeout in short form', 'timeout = "25 minutes"', 'timeout = "25m"'],
-      ['a timeout that is not a duration', 'timeout = "25 minutes"', 'timeout = "soon"'],
-      ['a zero timeout', 'timeout = "25 minutes"', 'timeout = "0 minutes"'],
-      ['a negative timeout', 'timeout = "25 minutes"', 'timeout = "-5 minutes"'],
-      ['an infinite timeout', 'timeout = "25 minutes"', 'timeout = "Infinity"'],
-    ].map(([description = '', validLine = '', invalidLine = '']) => ({
-      description,
-      overrides: { 'routines/triage.toml': ROUTINE_TOML.replace(validLine, invalidLine) },
-      errorClass: ConfigFileInvalid,
-      filePath: 'routines/triage.toml',
-    })),
     {
       description: 'a skill without frontmatter',
       overrides: { 'skills/handoff/SKILL.md': 'Write...\n' },

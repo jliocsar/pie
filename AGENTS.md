@@ -142,7 +142,7 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts`, `Claude.ts` and `Crontab.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
 
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 
@@ -365,61 +365,6 @@ argument the script runs `pod up` right after the install; without one it only i
 
 `PIE_RELEASE_URL` swaps the release download for another, a pinned tag or a local build over
 `file://`, which curl reads.
-
-## Routines
-
-A routine is a headless `claude -p` run on a schedule, one TOML file per routine. It names a
-recipe, and that reference becomes an enum through sync like every other name. Its name must fit
-after `pie-routine-` in an exe.dev tag, the same rule recipes follow.
-
-The schedule must have exactly 5 fields, because crontab has no seconds field and `effect/Cron`
-accepts 6. The timeout has no default, since nobody has measured a good one. It must be positive and
-finite, in the long form `Duration` reads: `"25 minutes"` parses, but `"25m"` and `"1h30m"` don't.
-`"0 minutes"`, `"-5 minutes"` and `"Infinity"` all parse, which is why the loader checks the value
-itself (measured on this Effect release). `Duration`'s own formatter prints a short form it can't
-read back, so messages spell out the long form.
-
-A routine VM carries `pie`, its recipe tag and one `pie-routine-<name>` tag per routine. `pod up`
-reads the tags once and gets the recipe and the routines from that one read. Every routine must name
-the VM's recipe, since the recipe's integrations attach to that tag, and a mismatch fails before
-anything is written.
-
-There's no server: each VM schedules its own routines in a marked block of the user's crontab,
-through `crontab -l` and `crontab -`. A central VM calling the others would be cron with network
-hops, and a VM that's down can't take the call anyway. The block is written only when it changed, and
-removed when no routine tags are left. `crontab -l` with no crontab exits 1 saying `no crontab for
-<user>` (measured on exeuntu), which counts as an empty one. The line calls pie by its full install
-path because cron's `PATH` is minimal. It carries no `flock` or `timeout`, because pie owns both, so a
-skipped run still gets logged. `PIE_CRONTAB` swaps the crontab command, which is how the tests fake
-it.
-
-A run reads the config checkout `pod up` last applied, without fetching it, so `pod up` stays the
-only thing that changes the box. It runs claude through `mise exec` from home, like tasks, with a
-session id pie picks so every run can be resumed.
-
-cron's `PATH` is `/usr/bin:/bin`, so `mise exec -- claude` from cron found no claude (measured on
-exeuntu). claude's own installer puts it in `~/.local/bin`, and the image ships one in
-`/usr/local/bin`, so a run puts both ahead of the inherited `PATH`, in that order, matching a login
-shell.
-
-The lock is a file created exclusively, holding the run's pid, its run id and the kernel's boot id.
-If the lock is held by a live process, the run is logged as skipped. Otherwise the held run is
-logged as interrupted and the lock is taken over. The boot id is there because a VM restored after a
-host failure starts its pids over, and a stale pid could belong to some other live process.
-
-On timeout, pie kills claude's whole process group with SIGKILL. With SIGTERM, the spawner waits a
-second and never escalates, so a child that ignores TERM survives. With SIGKILL, a TERM-trapping
-parent and its grandchild both died (measured on Bun's spawner). A process that starts its own
-session leaves the group and would survive.
-
-The run log is append-only JSON lines, one per event (`started` with its session id, `finished` with
-its outcome, `skipped`). `started` is written before claude starts, so a crash can't lose a run, and
-the file stays readable with `tail` and `jq` over ssh. pie exits non-zero when a run doesn't succeed.
-
-The log command folds the events into one row per run, newest first. A run that started and never
-finished shows as running while its lock's process is alive, and as interrupted otherwise. It prints
-the whole session id, since a shortened one can't be resumed. A line that doesn't decode fails with
-its line number rather than being skipped.
 
 ## Pod up
 
