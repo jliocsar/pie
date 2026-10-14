@@ -369,7 +369,9 @@ argument the script runs `pod up` right after the install; without one it only i
 
 The script puts pie in `minimum_release_age_excludes`. Without that, `latest` resolved to a release
 three back, because the newer two were under a day old (measured). A fresh pod would start behind,
-and auto-update would hold every release for a day. mise's asset detection picks `pie-linux-x64`
+and auto-update would hold every release for a day. The install also skips mise's cache of remote
+versions, kept for an hour by default: a re-run right after a release resolved `latest` to the one
+before it, and with the cache off it got the new one (measured). mise's asset detection picks `pie-linux-x64`
 without an `asset_pattern`. arm64 isn't measured.
 
 `PIE_VERSION` picks the version, `latest` by default. An exact one pins pie, and mise never
