@@ -314,7 +314,7 @@ describe('pie pod up', () => {
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
           expect(miseConfig).toBe(
-            '[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
+            '[settings]\ntool_update.global_auto = true\n[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
           )
           expect(Record.map(firstHomeSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
             '.profile': { text: MISE_PROFILE_BLOCK, mode: 0o644 },

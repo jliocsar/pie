@@ -406,6 +406,15 @@ need options to be installable at all: fff's releases ship a library beside the 
 and mise's asset autodetection picked the library (measured). Every tool reaches the box as an
 inline table, since mise reads both forms and one shape is less code.
 
+Every pod gets mise's `tool_update.global_auto`, with no knob to turn it off: the version an
+environment pins already says what may change. mise never updates an exact version, and a range
+such as `"24"` or `"lts"` only moves within itself. One tool opts out with `auto_update = false` in
+its options. `conf.d` counts as global config for it: with only jq 1.6 installed and `jq = "1"`,
+`mise exec -- jq` upgraded to 1.8.2 before running, and stayed on 1.6 without the setting (measured
+on mise 2026.10.8). The key is written bare, because a quoted `"tool_update.global_auto"` is one
+literal key rather than a dotted path. An update also waits out `minimum_release_age`, 24h by
+default, so a release reaches a pod a day or more after it ships.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that

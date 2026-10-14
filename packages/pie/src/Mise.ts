@@ -22,6 +22,7 @@ import {
 const MISE_INSTALLER_URL = 'https://mise.run'
 const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
 const MISE_ZSH_ACTIVATE_LINE = 'eval "$($HOME/.local/bin/mise activate zsh)"'
+const MISE_TOOL_AUTO_UPDATE_LINE = 'tool_update.global_auto = true'
 
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
   commandLine: Schema.Array(Schema.String),
@@ -81,6 +82,8 @@ const tomlTableOf = (tableName: string, tomlValues: Record.ReadonlyRecord<string
 
 const miseConfigOf = (environment: ResolvedEnvironment) =>
   [
+    '[settings]',
+    MISE_TOOL_AUTO_UPDATE_LINE,
     ...tomlTableOf('tools', Record.map(environment.tools, tomlInlineTableOf)),
     ...tomlTableOf(
       'env',
