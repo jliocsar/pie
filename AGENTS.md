@@ -310,8 +310,9 @@ attaches once, to a tag of its own, instead of to each recipe's tag. pie still n
 VM holds no exe.dev credentials, so it can't tag itself. `pod up` compares the list with the VM's
 tags and fails before anything changes when one is missing, printing the
 `ssh exe.dev tag <vm> <tag> …` line that adds them, with the VM's name from reflection. The laptop
-gives a new VM every tag at `ssh exe.dev new --tag`. `pie check` sees no VM, so it only checks that
-each entry is a valid exe.dev tag name.
+gives a new VM every tag at `ssh exe.dev new --tag`. `pie check` sees no VM, so it checks only that
+each entry is a valid exe.dev tag name and neither `pie` nor a `pie-recipe-` tag: the VM carries
+those already, and another recipe's tag would give it two recipes.
 
 ## The config checkout
 

@@ -9,7 +9,7 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
-import { GITHUB_INTEGRATION, isValidTag, RECIPE_TAG_PREFIX, TagName } from './ExeDev.ts'
+import { GITHUB_INTEGRATION, isValidTag, RECIPE_TAG_PREFIX, RequiredTagName } from './ExeDev.ts'
 
 export type ConfigNames = Record.ReadonlyRecord<ReferenceKind, readonly string[]>
 
@@ -168,7 +168,7 @@ const ClaudeRecipe = Schema.Struct({
 
 export const Recipe = Schema.Struct({
   label: Schema.String,
-  tags: withEmptyDefault(TagName),
+  tags: withEmptyDefault(RequiredTagName),
   environment: nameOf('environment'),
   repositories: withEmptyDefault(Repository),
   skills: namesOf('skill'),

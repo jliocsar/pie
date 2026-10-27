@@ -732,6 +732,17 @@ describe('pie sync and pie check', () => {
       errorClass: ConfigFileInvalid,
       filePath: 'recipes/personal.toml',
     },
+    {
+      description: "a recipe tag that is another recipe's",
+      overrides: {
+        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+          'label = "Personal"\n',
+          'label = "Personal"\ntags = ["pie-recipe-work"]\n',
+        ),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
   ])('check refuses $description, naming the file', ({ overrides, errorClass, filePath }) =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>

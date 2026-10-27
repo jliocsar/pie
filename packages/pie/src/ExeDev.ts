@@ -31,6 +31,15 @@ export const integrationUrlOf = (integrationName: string) =>
     ),
   )
 
+export const RequiredTagName = TagName.check(
+  Schema.makeFilter(
+    (tagName: string) => tagName !== POD_TAG && !tagName.startsWith(RECIPE_TAG_PREFIX),
+    {
+      message: `Every pie VM already carries ${POD_TAG} and one ${RECIPE_TAG_PREFIX}<recipe> tag, so a recipe's tags list neither: another recipe's tag would give its VMs two recipes.`,
+    },
+  ),
+)
+
 export const isValidTag = Schema.is(TagName)
 
 const listOf = (names: readonly string[]) =>
