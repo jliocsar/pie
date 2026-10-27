@@ -305,6 +305,14 @@ no tag glob. The config repo's integration attaches to `pie`, and anything only 
 attaches to its `pie-recipe-<name>`. pie never creates tags or integrations; they're made by hand in
 exe.dev.
 
+A recipe's `tags` lists more tags its VMs must carry, so an integration several recipes share
+attaches once, to a tag of its own, instead of to each recipe's tag. pie still never writes one: the
+VM holds no exe.dev credentials, so it can't tag itself. `pod up` compares the list with the VM's
+tags and fails before anything changes when one is missing, printing the
+`ssh exe.dev tag <vm> <tag> …` line that adds them, with the VM's name from reflection. The laptop
+gives a new VM every tag at `ssh exe.dev new --tag`. `pie check` sees no VM, so it only checks that
+each entry is a valid exe.dev tag name.
+
 ## The config checkout
 
 `pod up <org>/<repo>` remembers the repo, so later runs need no argument. The checkout lives in the

@@ -147,6 +147,7 @@ describe('loadConfig', () => {
         })
 
         expect(config.recipes['personal']).toMatchObject({
+          tags: [],
           repositories: [],
           skills: [],
           mcp: {},

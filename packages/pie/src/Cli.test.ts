@@ -16,13 +16,20 @@ import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
-import { configFilePathOf, ConfigReferenceMissing, type TomlKind } from './ConfigRepo.ts'
+import {
+  ConfigFileInvalid,
+  configFilePathOf,
+  ConfigReferenceMissing,
+  type TomlKind,
+} from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
   RecipeTagMissing,
   RecipeTagsConflict,
+  REFLECTION_INDEX_URL,
   REFLECTION_TAGS_URL,
   RepositoryUnreachable,
+  VmTagsMissing,
 } from './ExeDev.ts'
 import { runGit } from './Git.ts'
 import { HomeFileNotPies } from './Pod.ts'
@@ -60,6 +67,11 @@ const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf(
 const CLAUDE_MD_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}\n${SEED_CONFIG_FILES['claude/claude_md/work.md']}\n${SEED_CONFIG_FILES['claude/claude_md/gcp.md']}\n<!-- <<< pie <<< -->\n`
 const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
+const WORK_RECIPE_TOML = SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+  'label = "Personal"\n',
+  'label = "Personal"\ntags = ["work-gh", "work-gcp"]\n',
+)
+
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
 
 const capturingConsole = () => {
@@ -74,16 +86,23 @@ const capturingConsole = () => {
   return { stdout, console }
 }
 
-const reflectionAnswering = (vmTags: readonly string[]) =>
-  Object.assign(
+const reflectionAnswering = (vmName: string, vmTags: readonly string[]) => {
+  const reflection: Record.ReadonlyRecord<string, unknown> = {
+    [REFLECTION_INDEX_URL]: { name: vmName },
+    [REFLECTION_TAGS_URL]: { tags: vmTags },
+  }
+
+  return Object.assign(
     (input: string | URL | Request) =>
       Promise.resolve(
-        String(input instanceof Request ? input.url : input) === REFLECTION_TAGS_URL
-          ? Response.json({ tags: vmTags })
-          : new Response(null, { status: 404 }),
+        Option.match(Record.get(reflection, String(input instanceof Request ? input.url : input)), {
+          onNone: () => new Response(null, { status: 404 }),
+          onSome: (body) => Response.json(body),
+        }),
       ),
     { preconnect: globalThis.fetch.preconnect },
   )
+}
 
 const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) {
   const path = yield* Path.Path
@@ -97,7 +116,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
   ) =>
     Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(vmTags)),
+      Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(machineName, vmTags)),
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
@@ -497,6 +516,76 @@ describe('pie pod up', () => {
       ),
     ))
 
+  test("a VM missing a recipe's tags fails with the ssh exe.dev tag line that adds them, and writes nothing", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const home = homeOf('work-box')
+
+          yield* prepareBox(home)
+          yield* commitToConfigSource(
+            sourceDirectory,
+            { 'recipes/personal.toml': WORK_RECIPE_TOML },
+            [],
+          )
+
+          const error = yield* Effect.flip(
+            runPieOn(
+              'work-box',
+              ['pod', 'up', CONFIG_REPOSITORY],
+              [...PERSONAL_POD_TAGS, 'work-gh'],
+            ),
+          )
+          const writtenHomePaths = yield* Effect.filter(
+            [...HOME_FILE_PATHS, '.claude', '.config/mise'],
+            (homePath) => fileSystem.exists(path.join(home, homePath)),
+          )
+          const miseCalls = yield* readMiseCalls(home)
+
+          expect(error).toEqual(
+            new VmTagsMissing({
+              vmName: 'work-box',
+              recipeName: 'personal',
+              missingTags: ['work-gcp'],
+            }),
+          )
+          expect(error.message).toContain('`ssh exe.dev tag work-box work-gcp`')
+          expect(writtenHomePaths).toEqual([])
+          expect(miseCalls).toEqual([])
+        }),
+      ),
+    ))
+
+  test("a VM carrying every one of a recipe's tags goes through", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, output, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('work-box'))
+          yield* commitToConfigSource(
+            sourceDirectory,
+            { 'recipes/personal.toml': WORK_RECIPE_TOML },
+            [],
+          )
+          yield* runPieOn(
+            'work-box',
+            ['pod', 'up', CONFIG_REPOSITORY],
+            [...PERSONAL_POD_TAGS, 'work-gcp', 'work-gh'],
+          )
+
+          const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
+
+          expect(output.stdout).toEqual([
+            `Applied recipe personal at config commit ${headCommit.slice(0, 7)}.`,
+          ])
+        }),
+      ),
+    ))
+
   test('a repository clones through the integration it names, and one pie cannot clone fails, naming the integration and its tag', () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
@@ -630,6 +719,17 @@ describe('pie sync and pie check', () => {
         ),
       },
       errorClass: ConfigReferenceMissing,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: "a recipe tag exe.dev can't hold",
+      overrides: {
+        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+          'label = "Personal"\n',
+          'label = "Personal"\ntags = ["Work GH"]\n',
+        ),
+      },
+      errorClass: ConfigFileInvalid,
       filePath: 'recipes/personal.toml',
     },
   ])('check refuses $description, naming the file', ({ overrides, errorClass, filePath }) =>

@@ -13,7 +13,7 @@ import {
   writeClaudeInstructions,
 } from '../Claude.ts'
 import { configFilePathOf, loadConfig } from '../ConfigRepo.ts'
-import { recipeNameOfThisVm } from '../ExeDev.ts'
+import { recipeNameOf, requireRecipeTags, tagsOfThisVm } from '../ExeDev.ts'
 import {
   cloneMissingRepositories,
   configRepositoryOf,
@@ -47,7 +47,8 @@ export const pod = Command.make('pod').pipe(
       { configRepository: Argument.String('org/repo').pipe(Argument.optional) },
       Effect.fn(function* ({ configRepository }) {
         const repositoryName = yield* configRepositoryOf(configRepository)
-        const recipeName = yield* recipeNameOfThisVm
+        const vmTags = yield* tagsOfThisVm
+        const recipeName = yield* recipeNameOf(vmTags)
         const { checkoutDirectory, commit } = yield* syncConfigCheckout(repositoryName)
 
         yield* rememberConfigRepository(repositoryName)
@@ -57,6 +58,9 @@ export const pod = Command.make('pod').pipe(
           onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
           onSome: Effect.succeed,
         })
+
+        yield* requireRecipeTags(recipeName, recipe.tags, vmTags)
+
         const tasks = yield* Effect.forEach(recipe.environment.tasks, (taskName) =>
           readPodFile(checkoutDirectory, configFilePathOf.task(taskName), taskName),
         )

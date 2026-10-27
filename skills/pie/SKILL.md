@@ -29,7 +29,9 @@ shell.
   Re-running it is how a pod picks up new config.
 - Secrets never live on a pod. exe.dev integrations add them at the network edge. The config repo's
   integration attaches to the `pie` tag, and a recipe's own integrations attach to its
-  `pie-recipe-<name>` tag.
+  `pie-recipe-<name>` tag. An integration several recipes share attaches to a tag of its own, listed
+  in each recipe's `tags` (`tags = ["work-gh"]`). `pod up` fails on a VM missing one of them and
+  prints the `ssh exe.dev tag <vm> <tag> …` line that adds them.
 - pie never creates VMs, tags or integrations. Integrations are made by hand in exe.dev, and that's
   the user's job: tell them exactly which one to make and which tag it attaches to.
 - pie's errors name what's missing, such as the integration a clone needs and its tag. Read them
@@ -104,10 +106,10 @@ The laptop isn't a pod. It edits the config repo and validates it:
 
 ## Bootstrapping a new pod
 
-1. Create the VM with both tags:
+1. Create the VM with both tags, plus each one in `recipes/<recipe>.toml`'s `tags`:
 
    ```sh
-   ssh exe.dev new --name <vm> --tag pie,pie-recipe-<recipe>
+   ssh exe.dev new --name <vm> --tag pie,pie-recipe-<recipe>,<tag>,…
    ```
 
 2. Install pie on it and apply the recipe:
@@ -123,7 +125,8 @@ The laptop isn't a pod. It edits the config repo and validates it:
    lives on a pod.
 4. If the user drives pods from herdr: `herdr machine add <vm>.exe.xyz`.
 
-Integrations a recipe needs go on `pie-recipe-<recipe>` before step 2:
+Integrations a recipe needs go on `pie-recipe-<recipe>`, or on one of its `tags` when recipes share
+them, before step 2:
 
 - a GitHub integration reaching the repos it clones, or the `http-proxy` integration a repo names.
   Without one, step 2 fails and names the repo and integration.

@@ -1,6 +1,7 @@
 import * as Arr from 'effect/Array'
 import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
+import { pipe } from 'effect/Function'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
@@ -10,11 +11,17 @@ const DEFAULT_INTEGRATION_URL = 'https://{integration}.int.exe.xyz'
 const INTEGRATION_PLACEHOLDER = '{integration}'
 
 export const GITHUB_INTEGRATION = 'github'
+export const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
 export const RECIPE_TAG_PREFIX = 'pie-recipe-'
 
+const VmIndex = Schema.Struct({ name: Schema.String })
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
+
+export const TagName = Schema.String.check(
+  Schema.isPattern(TAG_PATTERN, { message: 'An exe.dev tag uses only a-z, 0-9, _ and -.' }),
+)
 
 export const integrationUrlOf = (integrationName: string) =>
   Config.String('PIE_INTEGRATION_URL').pipe(
@@ -24,17 +31,17 @@ export const integrationUrlOf = (integrationName: string) =>
     ),
   )
 
-export const isValidTag = (tag: string) => TAG_PATTERN.test(tag)
+export const isValidTag = Schema.is(TagName)
 
 const listOf = (names: readonly string[]) =>
   Arr.isReadonlyArrayNonEmpty(names) ? names.join(', ') : 'none'
 
 export class ReflectionUnreadable extends Schema.TaggedError<ReflectionUnreadable>()(
   'ReflectionUnreadable',
-  { failureMessage: Schema.String },
+  { reflectionUrl: Schema.String, failureMessage: Schema.String },
 ) {
   override get message(): string {
-    return `pie reads this VM's tags from ${REFLECTION_TAGS_URL}, and that failed: ${this.failureMessage}. pie pod up runs on exe.dev VMs with the reflection integration attached.`
+    return `pie reads this VM's name and tags from ${this.reflectionUrl}, and that failed: ${this.failureMessage}. pie pod up runs on exe.dev VMs with the reflection integration attached.`
   }
 }
 
@@ -52,6 +59,16 @@ export class RecipeTagsConflict extends Schema.TaggedError<RecipeTagsConflict>()
 ) {
   override get message(): string {
     return `This VM has more than one recipe tag: ${listOf(this.recipeTags)}. Keep one, removing the others with \`ssh exe.dev tag -d <vm> <tag>\`.`
+  }
+}
+
+export class VmTagsMissing extends Schema.TaggedError<VmTagsMissing>()('VmTagsMissing', {
+  vmName: Schema.String,
+  recipeName: Schema.String,
+  missingTags: Schema.Array(Schema.String),
+}) {
+  override get message(): string {
+    return `Recipe ${this.recipeName} needs this VM to carry ${listOf(this.missingTags)}, and it doesn't. pie can't tag a VM, so add them from the laptop with \`ssh exe.dev tag ${this.vmName} ${this.missingTags.join(' ')}\`, then run pie pod up again.`
   }
 }
 
@@ -74,24 +91,56 @@ export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreacha
   }
 }
 
-export const recipeNameOfThisVm = Effect.gen(function* () {
+const readReflection = Effect.fn('readReflection')(function* <Decoded>(
+  reflectionUrl: string,
+  schema: Schema.Codec<Decoded, unknown>,
+) {
   const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const { tags } = yield* httpClient.get(REFLECTION_TAGS_URL).pipe(
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(VmTags)),
+
+  return yield* httpClient.get(reflectionUrl).pipe(
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
     Effect.catchTags({
       HttpClientError: (error) =>
-        Effect.fail(new ReflectionUnreadable({ failureMessage: error.message })),
+        Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
       SchemaError: (error) =>
-        Effect.fail(new ReflectionUnreadable({ failureMessage: error.message })),
+        Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
     }),
   )
-  const recipeTags = Arr.filter(tags, (tag) => tag.startsWith(RECIPE_TAG_PREFIX))
+})
 
-  return yield* Arr.match(recipeTags, {
-    onEmpty: () => Effect.fail(new RecipeTagMissing({ vmTags: tags })),
+export const tagsOfThisVm = readReflection(REFLECTION_TAGS_URL, VmTags).pipe(
+  Effect.map(({ tags }) => tags),
+)
+
+const nameOfThisVm = readReflection(REFLECTION_INDEX_URL, VmIndex).pipe(
+  Effect.map(({ name }) => name),
+)
+
+export const recipeNameOf = (vmTags: readonly string[]) => {
+  const recipeTags = Arr.filter(vmTags, (tag) => tag.startsWith(RECIPE_TAG_PREFIX))
+
+  return Arr.match(recipeTags, {
+    onEmpty: () => Effect.fail(new RecipeTagMissing({ vmTags })),
     onNonEmpty: ([recipeTag, ...otherRecipeTags]) =>
       Arr.isReadonlyArrayNonEmpty(otherRecipeTags)
         ? Effect.fail(new RecipeTagsConflict({ recipeTags }))
         : Effect.succeed(recipeTag.slice(RECIPE_TAG_PREFIX.length)),
   })
-})
+}
+
+export const requireRecipeTags = (
+  recipeName: string,
+  recipeTags: readonly string[],
+  vmTags: readonly string[],
+) =>
+  pipe(
+    recipeTags,
+    Arr.difference(vmTags),
+    Arr.match({
+      onEmpty: () => Effect.void,
+      onNonEmpty: (missingTags) =>
+        Effect.flatMap(nameOfThisVm, (vmName) =>
+          Effect.fail(new VmTagsMissing({ vmName, recipeName, missingTags })),
+        ),
+    }),
+  )
