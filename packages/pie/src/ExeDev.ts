@@ -41,7 +41,7 @@ export class ReflectionUnreadable extends Schema.TaggedError<ReflectionUnreadabl
   { reflectionUrl: Schema.String, failureMessage: Schema.String },
 ) {
   override get message(): string {
-    return `pie reads this VM's name and tags from ${this.reflectionUrl}, and that failed: ${this.failureMessage}. pie pod up runs on exe.dev VMs with the reflection integration attached.`
+    return `pie reads this VM's details from ${this.reflectionUrl}, and that failed: ${this.failureMessage}. pie pod up runs on exe.dev VMs with the reflection integration attached.`
   }
 }
 
@@ -65,10 +65,10 @@ export class RecipeTagsConflict extends Schema.TaggedError<RecipeTagsConflict>()
 export class VmTagsMissing extends Schema.TaggedError<VmTagsMissing>()('VmTagsMissing', {
   vmName: Schema.String,
   recipeName: Schema.String,
-  missingTags: Schema.Array(Schema.String),
+  missingTags: Schema.NonEmptyArray(Schema.String),
 }) {
   override get message(): string {
-    return `Recipe ${this.recipeName} needs this VM to carry ${listOf(this.missingTags)}, and it doesn't. pie can't tag a VM, so add them from the laptop with \`ssh exe.dev tag ${this.vmName} ${this.missingTags.join(' ')}\`, then run pie pod up again.`
+    return `Recipe ${this.recipeName} needs this VM to carry ${this.missingTags.join(', ')}, and it doesn't. pie can't tag a VM, so add them from the laptop with \`ssh exe.dev tag ${this.vmName} ${this.missingTags.join(' ')}\`, then run pie pod up again.`
   }
 }
 
@@ -116,24 +116,24 @@ const nameOfThisVm = readReflection(REFLECTION_INDEX_URL, VmIndex).pipe(
   Effect.map(({ name }) => name),
 )
 
-export const recipeNameOf = (vmTags: readonly string[]) => {
+export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonly string[]) {
   const recipeTags = Arr.filter(vmTags, (tag) => tag.startsWith(RECIPE_TAG_PREFIX))
 
-  return Arr.match(recipeTags, {
+  return yield* Arr.match(recipeTags, {
     onEmpty: () => Effect.fail(new RecipeTagMissing({ vmTags })),
     onNonEmpty: ([recipeTag, ...otherRecipeTags]) =>
       Arr.isReadonlyArrayNonEmpty(otherRecipeTags)
         ? Effect.fail(new RecipeTagsConflict({ recipeTags }))
         : Effect.succeed(recipeTag.slice(RECIPE_TAG_PREFIX.length)),
   })
-}
+})
 
-export const requireRecipeTags = (
+export const requireRecipeTags = Effect.fn('requireRecipeTags')(function* (
   recipeName: string,
   recipeTags: readonly string[],
   vmTags: readonly string[],
-) =>
-  pipe(
+) {
+  yield* pipe(
     recipeTags,
     Arr.difference(vmTags),
     Arr.match({
@@ -144,3 +144,4 @@ export const requireRecipeTags = (
         ),
     }),
   )
+})
