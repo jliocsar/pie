@@ -57,6 +57,7 @@ const MISE_ZSHRC_BLOCK =
   '# >>> pie: mise >>>\neval "$($HOME/.local/bin/mise activate zsh)"\n# <<< pie: mise <<<\n'
 
 const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}<!-- <<< pie <<< -->\n`
+const CLAUDE_MD_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}\n${SEED_CONFIG_FILES['claude/claude_md/work.md']}\n${SEED_CONFIG_FILES['claude/claude_md/gcp.md']}\n<!-- <<< pie <<< -->\n`
 const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
@@ -294,7 +295,7 @@ describe('pie pod up', () => {
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
-            'CLAUDE.md': { text: `# stock\n${CLAUDE_INSTRUCTIONS_BLOCK}`, mode: 0o644 },
+            'CLAUDE.md': { text: `# stock\n${CLAUDE_MD_BLOCK}`, mode: 0o644 },
             'agents/oracle.md': {
               text: SEED_CONFIG_FILES['claude/agents/oracle.md'],
               mode: 0o644,
@@ -333,6 +334,41 @@ describe('pie pod up', () => {
           expect(output.stdout).toEqual(
             Arr.replicate(`Applied recipe personal at config commit ${abbreviatedCommit}.`, 2),
           )
+        }),
+      ),
+    ))
+
+  test("appends the recipe's claude_md files to pie's CLAUDE.md block in order, leaving the text around it alone", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+          const claudeMdPath = path.join(home, '.claude', 'CLAUDE.md')
+
+          yield* prepareBox(home)
+          yield* fileSystem.makeDirectory(path.dirname(claudeMdPath), { recursive: true })
+          yield* fileSystem.writeFileString(
+            claudeMdPath,
+            '# stock\n<!-- >>> pie >>> -->\nstale\n<!-- <<< pie <<< -->\n# mine\n',
+          )
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+
+          const firstClaudeMd = yield* fileSystem.readFile(claudeMdPath)
+          const firstModifiedAt = (yield* fileSystem.stat(claudeMdPath)).mtime
+
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          const secondClaudeMd = yield* fileSystem.readFile(claudeMdPath)
+          const secondModifiedAt = (yield* fileSystem.stat(claudeMdPath)).mtime
+
+          expect(new TextDecoder().decode(firstClaudeMd)).toBe(
+            `# stock\n${CLAUDE_MD_BLOCK}# mine\n`,
+          )
+          expect(secondClaudeMd).toEqual(firstClaudeMd)
+          expect(secondModifiedAt).toEqual(firstModifiedAt)
         }),
       ),
     ))
@@ -543,6 +579,7 @@ describe('pie sync and pie check', () => {
             environment: { type: 'string', enum: ['personal'] },
             agent: { type: 'string', enum: ['oracle', 'unused'] },
             settings: { type: 'string', enum: ['default'] },
+            claude_md: { type: 'string', enum: ['gcp', 'work'] },
             skill: { type: 'string', enum: ['handoff'] },
             mcp: { type: 'string', enum: ['docs', 'fff'] },
             home: { type: 'string', enum: ['shell', 'zsh'] },
@@ -579,6 +616,17 @@ describe('pie sync and pie check', () => {
         'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
           '"handoff"',
           '"handof"',
+        ),
+      },
+      errorClass: ConfigReferenceMissing,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: "a recipe listing a claude_md file that doesn't exist",
+      overrides: {
+        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+          '"gcp"',
+          '"gpc"',
         ),
       },
       errorClass: ConfigReferenceMissing,

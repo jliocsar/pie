@@ -72,7 +72,7 @@ export const pod = Command.make('pod').pipe(
         yield* runTasks(tasks)
         yield* cloneMissingRepositories(recipeName, recipe.repositories)
         yield* applyClaudeConfig(claudeConfig, claudeState)
-        yield* writeClaudeInstructions(recipeName, repositoryName)
+        yield* writeClaudeInstructions(recipeName, repositoryName, recipe.claude.claude_md)
         yield* Console.log(
           `Applied recipe ${recipeName} at config commit ${commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
         )

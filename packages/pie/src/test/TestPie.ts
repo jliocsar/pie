@@ -22,6 +22,7 @@ home = ["shell", { name = "zsh", mode = "append" }]
 [claude]
 agents = ["oracle"]
 settings = "default"
+claude_md = ["work", "gcp"]
 `,
   'environments/personal.toml': `#:schema ../.pie/schema/environment.json
 label = "Personal"
@@ -40,6 +41,8 @@ GH_HOST = "github.int.exe.xyz"
     '---\nname: oracle\ndescription: answers questions\n---\nYou answer.\n',
   'claude/agents/unused.md': '---\nname: unused\ndescription: in no recipe\n---\n',
   'claude/settings/default.json': '{ "model": "opus", "includeCoAuthoredBy": false }\n',
+  'claude/claude_md/work.md': '## Work\n\nCommit with the work email.\n',
+  'claude/claude_md/gcp.md': '## GCP\n\nThe gcloud project is `pie-dev`.',
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite.\n',
   'skills/handoff/scripts/greet': '#!/bin/sh\necho hi\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p "$HOME/workspace"\n',

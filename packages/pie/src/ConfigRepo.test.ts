@@ -44,6 +44,7 @@ home = ["shell", { name = "zsh", mode = "append" }]
 [claude]
 agents = ["oracle"]
 settings = "default"
+claude_md = ["work", "gcp"]
 `
 
 const AGENT_MARKDOWN = `---
@@ -61,6 +62,8 @@ const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
   'mcp/executor.toml': 'url = "http://executor.int.exe.xyz/mcp"\n',
   'claude/agents/oracle.md': AGENT_MARKDOWN,
   'claude/settings/default.json': '{ "model": "opus" }\n',
+  'claude/claude_md/work.md': '## Work\n',
+  'claude/claude_md/gcp.md': '## GCP\n',
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite...\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p ~/workspace\n',
   'tasks/work/setup-gcloud': '#!/bin/sh\n',
@@ -124,6 +127,7 @@ describe('loadConfig', () => {
           },
           { homeName: 'zsh', mode: 'append', sourcePath: 'home/zsh/.zshrc', homePath: '.zshrc' },
         ])
+        expect(config.recipes['personal']?.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
         expect(config.mcpServers['fff']).toEqual({ command: 'fff-mcp', args: [] })
         expect(config.agents['oracle']).toEqual({
           name: 'Oracle, my Oracle',
@@ -147,7 +151,7 @@ describe('loadConfig', () => {
           skills: [],
           mcp: {},
           home: [],
-          claude: { agents: [], settings: {} },
+          claude: { agents: [], settings: {}, claude_md: [] },
         })
       }),
     ))
@@ -204,6 +208,12 @@ describe('loadConfig', () => {
       overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"default"', '"defualt"') },
       message:
         'recipes/personal.toml lists settings "defualt", but claude/settings/defualt.json doesn\'t exist.',
+    },
+    {
+      description: 'a recipe claude_md typo',
+      overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('"gcp"', '"gpc"') },
+      message:
+        'recipes/personal.toml lists claude_md "gpc", but claude/claude_md/gpc.md doesn\'t exist.',
     },
     {
       description: 'a recipe skill typo',

@@ -6,6 +6,7 @@ import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
+import * as Str from 'effect/String'
 import {
   ClaudeSettings,
   configFilePathOf,
@@ -347,11 +348,17 @@ This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
 export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(function* (
   recipeName: string,
   configRepository: string,
+  claudeMdTexts: readonly string[],
 ) {
   const path = yield* Path.Path
   const { claudeDirectory } = yield* claudePaths
+  const blockContent = pipe(
+    [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
+    Arr.map(Str.trimEnd),
+    Arr.join('\n\n'),
+  )
 
   yield* updateTextFile(path.join(claudeDirectory, 'CLAUDE.md'), (text) =>
-    withBlock(text, MARKDOWN_BLOCK_MARKERS, claudeInstructionsOf(recipeName, configRepository)),
+    withBlock(text, MARKDOWN_BLOCK_MARKERS, blockContent),
   )
 })

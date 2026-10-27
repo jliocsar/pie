@@ -46,6 +46,7 @@ export const ReferenceKind = Schema.Literals([
   'mcp',
   'task',
   'home',
+  'claude_md',
 ])
 
 export type ReferenceKind = typeof ReferenceKind.Type
@@ -162,6 +163,7 @@ export type HomeSet = typeof HomeSet.Type
 const ClaudeRecipe = Schema.Struct({
   agents: namesOf('agent'),
   settings: Schema.optionalKey(nameOf('settings')),
+  claude_md: namesOf('claude_md'),
 })
 
 export const Recipe = Schema.Struct({
@@ -209,6 +211,7 @@ const Config = Schema.Struct({
   skills: Schema.Record(Schema.String, Frontmatter),
   tasks: Schema.Array(Schema.String),
   homeSets: Schema.Record(Schema.String, Schema.Array(Schema.String)),
+  claudeMd: Schema.Record(Schema.String, Schema.String),
 })
 
 type Config = typeof Config.Type
@@ -226,6 +229,7 @@ export const configFilePathOf = {
   skill: (skillName: string) => `skills/${skillName}/SKILL.md`,
   task: (taskName: string) => `tasks/${taskName}`,
   home: (homeName: string) => `home/${homeName}`,
+  claude_md: (claudeMdName: string) => `claude/claude_md/${claudeMdName}.md`,
   schema: (tomlKind: TomlKind) => `${SCHEMA_DIRECTORY}/${tomlKind}.json`,
 }
 
@@ -433,6 +437,7 @@ export const listConfigNames = Effect.fn('listConfigNames')(function* (configDir
     mcp: yield* listNamesByExtension(configDirectory, 'mcp', '.toml'),
     task: yield* listDirectory(configDirectory, 'tasks', 'File', { recursive: true }),
     home: yield* listDirectory(configDirectory, 'home', 'Directory', { recursive: false }),
+    claude_md: yield* listNamesByExtension(configDirectory, 'claude/claude_md', '.md'),
   }
 
   return configNames
@@ -503,6 +508,13 @@ const loadSettings = (configDirectory: string, settingsNames: readonly string[])
       Effect.map((claudeSettings) => [settingsName, claudeSettings] as const),
     )
   }).pipe(Effect.map(Record.fromEntries))
+
+const loadClaudeMd = (configDirectory: string, claudeMdNames: readonly string[]) =>
+  Effect.forEach(claudeMdNames, (claudeMdName) =>
+    readConfigFile(configDirectory, configFilePathOf.claude_md(claudeMdName)).pipe(
+      Effect.map((claudeMdText) => [claudeMdName, claudeMdText] as const),
+    ),
+  ).pipe(Effect.map(Record.fromEntries))
 
 const isPieOwnedHomePath = (homePath: string) =>
   Arr.some(
@@ -636,6 +648,11 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     onSome: lookUpReference(filePath, 'settings', config.settings),
   })
 
+  const claudeMdTexts = yield* Effect.forEach(
+    recipe.claude.claude_md,
+    lookUpReference(filePath, 'claude_md', config.claudeMd),
+  )
+
   yield* Effect.forEach(recipe.skills, lookUpReference(filePath, 'skill', config.skills), {
     discard: true,
   })
@@ -709,7 +726,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     environment,
     home: homeFiles,
     mcp: mcpServers,
-    claude: { agents: recipe.claude.agents, settings: claudeSettings },
+    claude: { agents: recipe.claude.agents, settings: claudeSettings, claude_md: claudeMdTexts },
   }
 })
 
@@ -750,6 +767,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     skills: yield* loadSkills(configDirectory, configNames.skill),
     tasks: configNames.task,
     homeSets: yield* loadHomeSets(configDirectory, configNames.home),
+    claudeMd: yield* loadClaudeMd(configDirectory, configNames.claude_md),
   }
 
   const recipes = yield* Effect.all(

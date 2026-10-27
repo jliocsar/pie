@@ -25,7 +25,8 @@ shell.
   fetches the config repo through exe.dev's GitHub integration, and applies the recipe: mise
   installs the tools, the home sets land in `~`, mise runs the tasks, missing repos are cloned into
   `~/workspace`, Claude's agents, settings, skills and MCPs are written, and a `## pie` block in
-  `~/.claude/CLAUDE.md` tells Claude it's on a pod. Re-running it is how a pod picks up new config.
+  `~/.claude/CLAUDE.md` tells Claude it's on a pod, followed by the recipe's own `claude_md` text.
+  Re-running it is how a pod picks up new config.
 - Secrets never live on a pod. exe.dev integrations add them at the network edge. The config repo's
   integration attaches to the `pie` tag, and a recipe's own integrations attach to its
   `pie-recipe-<name>` tag.
@@ -51,6 +52,19 @@ home = ["shell", { name = "zsh", mode = "append" }]
   config goes through the recipe.
 
 Run `pie sync` after adding a set, then `pie check`, which names any rule a set breaks.
+
+## CLAUDE.md
+
+A recipe adds its own instructions to `~/.claude/CLAUDE.md` from `claude/claude_md/<name>.md`:
+
+```toml
+[claude]
+claude_md = ["work", "gcp"]
+```
+
+They land inside pie's block, after its fixed `## pie` text, in the order listed. Dropping a name
+removes its text on the next `pod up`, and anything outside the block stays. Run `pie sync` after
+adding a file; `pie check` names any listed file that doesn't exist.
 
 ## Repositories
 
