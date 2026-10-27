@@ -391,10 +391,15 @@ other key is left alone. The file is written only when the merged result differs
 
 Pie's block in `~/.claude/CLAUDE.md` opens with fixed text telling Claude it's on a pod, always on
 and always first. A recipe's `claude_md` files follow it inside that same block, in the order the
-recipe lists them, trimmed, a blank line apart, and an empty one drops out; there's no second block. It's how a recipe adds
-instructions, since a home set can't reach `.claude`. The block is rewritten whole on every `up`, so
-a file the recipe drops loses its text on the next run with nothing in the manifest, and text
-outside the block is the user's.
+recipe lists them, trimmed, a blank line apart, and an empty one drops out; there's no second
+block. It's how a recipe adds instructions, since a home set can't reach `.claude`. The block is
+rewritten whole on every `up`, so a file the recipe drops loses its text on the next run with
+nothing in the manifest, and text outside the block is the user's.
+
+A marked block ends at the first end marker after its start, so text pie puts inside one must not
+carry that block's own end marker, whether it comes from a `claude_md` file or an appended home
+file. One that does cuts the block short, and every later `up` writes the tail again, growing the
+file. Nothing rejects it: the limit is shared by every marked block, and no config has hit it.
 
 Pie never writes `~/.claude.json`: it is Claude's live state, rewritten by every running session.
 Pie only reads it for server names and runs `claude mcp add-json` and `claude mcp remove` at user
