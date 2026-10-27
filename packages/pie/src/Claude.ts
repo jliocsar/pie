@@ -354,7 +354,8 @@ export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(func
   const { claudeDirectory } = yield* claudePaths
   const blockContent = pipe(
     [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
-    Arr.map(Str.trimEnd),
+    Arr.map(Str.trim),
+    Arr.filter(Str.isNonEmpty),
     Arr.join('\n\n'),
   )
 

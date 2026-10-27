@@ -391,7 +391,7 @@ other key is left alone. The file is written only when the merged result differs
 
 Pie's block in `~/.claude/CLAUDE.md` opens with fixed text telling Claude it's on a pod, always on
 and always first. A recipe's `claude_md` files follow it inside that same block, in the order the
-recipe lists them, a blank line apart; there's no second block. It's how a recipe adds
+recipe lists them, trimmed, a blank line apart, and an empty one drops out; there's no second block. It's how a recipe adds
 instructions, since a home set can't reach `.claude`. The block is rewritten whole on every `up`, so
 a file the recipe drops loses its text on the next run with nothing in the manifest, and text
 outside the block is the user's.
