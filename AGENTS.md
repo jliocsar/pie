@@ -448,6 +448,13 @@ on mise 2026.10.8). The key is written bare, because a quoted `"tool_update.glob
 literal key rather than a dotted path. An update also waits out `minimum_release_age`, 24h by
 default, so a release reaches a pod a day or more after it ships.
 
+## Docs
+
+`docs/` is the user guide, one page per topic, with its `README.md` as the index. It says what a
+user sees and does; this file says why pie is built the way it is. A change to how pie behaves
+updates the page that describes it in the same commit, and a new page gets a line in the index.
+Page names are lowercase kebab-case, and only `README.md` keeps capitals.
+
 ## Commits
 
 Commit at the end of every implementation phase, without being asked. A phase is a step that
