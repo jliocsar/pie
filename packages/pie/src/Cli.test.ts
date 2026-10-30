@@ -6,6 +6,7 @@ import * as ConfigProvider from 'effect/ConfigProvider'
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
@@ -29,16 +30,17 @@ import {
   RecipeTagsConflict,
   REFLECTION_INDEX_URL,
   REFLECTION_TAGS_URL,
-  RepositoryUnreachable,
   VmTagsMissing,
 } from './ExeDev.ts'
-import { RememberedConfigRepositoryInvalid, runGit } from './Git.ts'
+import { RememberedConfigRepositoryInvalid, RepositoryUnreachable } from './Git.ts'
 import { HomeFileNotPies } from './Pod.ts'
+import { Process } from './Process.ts'
 import {
   commitToConfigSource,
   CONFIG_REPOSITORY,
   inFreshDirectory,
   makeConfigSource,
+  runGit,
   SEED_CONFIG_FILES,
 } from './test/TestPie.ts'
 
@@ -73,7 +75,9 @@ const WORK_RECIPE_TOML = SEED_CONFIG_FILES['recipes/personal.toml'].replace(
   'label = "Personal"\ntags = ["work-gh", "work-gcp"]\n',
 )
 
-const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
+const bunServicesRuntime = ManagedRuntime.make(
+  Process.layer.pipe(Layer.provideMerge(BunServices.layer)),
+)
 
 const capturingConsole = () => {
   const stdout: string[] = []
@@ -116,7 +120,6 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
     vmTags: readonly string[] = PERSONAL_POD_TAGS,
   ) =>
     Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
-      Effect.provide(FetchHttpClient.layer),
       Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(machineName, vmTags)),
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(

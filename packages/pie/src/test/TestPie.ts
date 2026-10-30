@@ -3,7 +3,7 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
-import { runGit } from '../Git.ts'
+import { Process } from '../Process.ts'
 
 const REGULAR_FILE_MODE = 0o644
 const EXECUTABLE_FILE_MODE = 0o755
@@ -51,6 +51,12 @@ GH_HOST = "github.int.exe.xyz"
 } satisfies Record.ReadonlyRecord<string, string>
 
 const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
+
+export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
+  const processes = yield* Process
+
+  return yield* processes.capture(['git', ...gitArguments], {})
+})
 
 export const inFreshDirectory = <Success, Failure, Requirements>(
   useDirectory: (temporaryDirectory: string) => Effect.Effect<Success, Failure, Requirements>,

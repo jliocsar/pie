@@ -158,6 +158,15 @@ depends on, so whoever provides it sees only the service. The entry point provid
 platform. Each subcommand provides the services it uses, so `check` and `sync` never build what
 only `pod up` needs, and never read HOME.
 
+The HTTP client is exe.dev's dependency alone, so the exe.dev service's layer provides the fetch
+client itself and the entry point doesn't. The tests still answer reflection with their own
+`fetch`, provided around the whole run: the fetch client looks `fetch` up on the fiber making
+each request, not when its layer builds (measured).
+
+Every child process goes through one process service, with stdin closed, whether it captures the
+output, as git's do, or passes the terminal through, as mise's do. A failure carries the command
+line, the exit code and whatever output was captured.
+
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 
 ## Rules

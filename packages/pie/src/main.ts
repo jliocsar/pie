@@ -3,11 +3,9 @@ import * as BunServices from '@effect/platform-bun/BunServices'
 import * as Cause from 'effect/Cause'
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
-import * as Layer from 'effect/Layer'
 import * as Result from 'effect/Result'
 import * as Runtime from 'effect/Runtime'
 import * as Command from 'effect/unstable/cli/Command'
-import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import packageJson from '../package.json' with { type: 'json' }
 import { pie } from './Cli.ts'
 
@@ -23,7 +21,7 @@ BunRuntime.runMain(
   Command.run(pie, { version: packageJson.version }).pipe(
     Effect.tapCause(reportFailure),
     // oxlint-disable-next-line effecttsgo/strict-effect-provide
-    Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer)),
+    Effect.provide(BunServices.layer),
   ),
   { disableErrorReporting: true },
 )

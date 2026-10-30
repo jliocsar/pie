@@ -1,9 +1,12 @@
 import * as Arr from 'effect/Array'
 import * as Config from 'effect/Config'
+import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import { pipe } from 'effect/Function'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
+import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
@@ -38,14 +41,6 @@ export const IntegrationName = Schema.String.check(
 export type IntegrationName = typeof IntegrationName.Type
 
 export const GITHUB_INTEGRATION = IntegrationName.make('github')
-
-export const integrationUrlOf = (integrationName: IntegrationName) =>
-  Config.String('PIE_INTEGRATION_URL').pipe(
-    Config.withDefault(DEFAULT_INTEGRATION_URL),
-    Config.map((integrationUrl) =>
-      integrationUrl.replaceAll(INTEGRATION_PLACEHOLDER, integrationName),
-    ),
-  )
 
 export const RequiredTagName = TagName.check(
   Schema.makeFilter(
@@ -97,50 +92,6 @@ export class VmTagsMissing extends Schema.TaggedError<VmTagsMissing>()('VmTagsMi
   }
 }
 
-export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreachable>()(
-  'RepositoryUnreachable',
-  {
-    repositoryName: Schema.String,
-    integrationName: Schema.String,
-    integrationTag: Schema.String,
-    gitOutput: Schema.String,
-  },
-) {
-  override get message(): string {
-    const fix =
-      this.integrationName === GITHUB_INTEGRATION
-        ? `In exe.dev, attach a GitHub integration that reaches it to tag:${this.integrationTag}.`
-        : `In exe.dev, check that the ${this.integrationName} integration is attached to tag:${this.integrationTag} and that its token can read the repository.`
-
-    return `pie couldn't reach ${this.repositoryName} through exe.dev's ${this.integrationName} integration. ${fix} git said: ${this.gitOutput.trim()}`
-  }
-}
-
-const readReflection = Effect.fn('readReflection')(function* <Decoded>(
-  reflectionUrl: string,
-  schema: Schema.Codec<Decoded, unknown>,
-) {
-  const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-
-  return yield* httpClient.get(reflectionUrl).pipe(
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
-    Effect.catchTags({
-      HttpClientError: (error) =>
-        Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
-      SchemaError: (error) =>
-        Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
-    }),
-  )
-})
-
-export const tagsOfThisVm = readReflection(REFLECTION_TAGS_URL, VmTags).pipe(
-  Effect.map(({ tags }) => tags),
-)
-
-const nameOfThisVm = readReflection(REFLECTION_INDEX_URL, VmIndex).pipe(
-  Effect.map(({ name }) => name),
-)
-
 export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonly string[]) {
   const recipeTags = Arr.filter(vmTags, (tag) => tag.startsWith(RECIPE_TAG_PREFIX))
 
@@ -156,20 +107,63 @@ export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonl
   })
 })
 
-export const requireRecipeTags = Effect.fn('requireRecipeTags')(function* (
-  recipeName: RecipeName,
-  recipeTags: readonly string[],
-  vmTags: readonly string[],
-) {
-  yield* pipe(
-    recipeTags,
-    Arr.difference(vmTags),
-    Arr.match({
-      onEmpty: () => Effect.void,
-      onNonEmpty: (missingTags) =>
-        Effect.flatMap(nameOfThisVm, (vmName) =>
-          Effect.fail(new VmTagsMissing({ vmName, recipeName, missingTags })),
-        ),
-    }),
-  )
-})
+export class ExeDev extends Context.Service<ExeDev>()('pie/ExeDev', {
+  make: Effect.gen(function* () {
+    const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+    const integrationUrlTemplate = yield* Config.String('PIE_INTEGRATION_URL').pipe(
+      Config.withDefault(DEFAULT_INTEGRATION_URL),
+    )
+
+    const readReflection = Effect.fn('ExeDev.readReflection')(function* <Decoded>(
+      reflectionUrl: string,
+      schema: Schema.Codec<Decoded, unknown>,
+    ) {
+      return yield* httpClient.get(reflectionUrl).pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+        Effect.catchTags({
+          HttpClientError: (error) =>
+            Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
+          SchemaError: (error) =>
+            Effect.fail(new ReflectionUnreadable({ reflectionUrl, failureMessage: error.message })),
+        }),
+      )
+    })
+
+    const vmTags = Effect.fn('ExeDev.vmTags')(function* () {
+      const { tags } = yield* readReflection(REFLECTION_TAGS_URL, VmTags)
+
+      return tags
+    })
+
+    const vmName = Effect.fn('ExeDev.vmName')(function* () {
+      const { name } = yield* readReflection(REFLECTION_INDEX_URL, VmIndex)
+
+      return name
+    })
+
+    const integrationUrl = (integrationName: IntegrationName) =>
+      integrationUrlTemplate.replaceAll(INTEGRATION_PLACEHOLDER, integrationName)
+
+    const requireRecipeTags = Effect.fn('ExeDev.requireRecipeTags')(function* (
+      recipeName: RecipeName,
+      recipeTags: readonly string[],
+      carriedTags: readonly string[],
+    ) {
+      yield* pipe(
+        recipeTags,
+        Arr.difference(carriedTags),
+        Arr.match({
+          onEmpty: () => Effect.void,
+          onNonEmpty: (missingTags) =>
+            Effect.flatMap(vmName(), (name) =>
+              Effect.fail(new VmTagsMissing({ vmName: name, recipeName, missingTags })),
+            ),
+        }),
+      )
+    })
+
+    return { vmTags, vmName, integrationUrl, requireRecipeTags }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(FetchHttpClient.layer))
+}

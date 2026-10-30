@@ -21,7 +21,7 @@ Every pie error says what's wrong and, where it can, the fix. This page groups t
 | Invalid value for argument <org/repo>                     | Pass the config repo as `<org>/<repo>`.                                                                                  |
 | pie couldn't reach X through exe.dev's github integration | Attach a GitHub integration that reaches the repo to the tag it names.                                                   |
 | pie couldn't reach X through exe.dev's Y integration      | Check that Y is attached to the tag it names, and that its token can read the repo. See [repositories](repositories.md). |
-| `git … exited with …`                                     | A git command failed for another reason. Its output is in the message.                                                   |
+| `git …` exited with …                                     | A git command failed for another reason. Its output is in the message.                                                   |
 
 An MCP server that fails inside Claude, with nothing from pie, usually needs an http-proxy integration pie can't see. See [Claude](claude.md#mcp-servers).
 

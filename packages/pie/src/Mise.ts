@@ -3,9 +3,6 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
-import * as Schema from 'effect/Schema'
-import * as ChildProcess from 'effect/unstable/process/ChildProcess'
-import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import type { ResolvedEnvironment, TaskFile, ToolRequest } from './ConfigRepo.ts'
 import {
   BOX_LAYOUT,
@@ -16,42 +13,18 @@ import {
   shellPathOf,
   withBlock,
 } from './Pod.ts'
+import { Process } from './Process.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'
 const MISE_TOOL_AUTO_UPDATE_LINE = 'tool_update.global_auto = true'
 const MISE_SHIMS_PATH_LINE = `export PATH="${shellPathOf(BOX_LAYOUT.miseDataDirectory)}/shims:$PATH"`
 const MISE_ZSH_ACTIVATE_LINE = `eval "$(${shellPathOf(BOX_LAYOUT.miseBinary)} activate zsh)"`
 
-export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
-  commandLine: Schema.Array(Schema.String),
-  exitCode: Schema.Int,
-}) {
-  override get message(): string {
-    return `\`${this.commandLine.join(' ')}\` exited with ${this.exitCode}.`
-  }
-}
-
 const runCommand = Effect.fn('runCommand')(function* (commandLine: readonly [string, ...string[]]) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const processes = yield* Process
   const { home } = yield* Box
-  const [command, ...commandArguments] = commandLine
-  yield* spawner
-    .exitCode(
-      ChildProcess.make(command, commandArguments, {
-        cwd: home,
-        extendEnv: true,
-        env: { HOME: home },
-        stdin: 'ignore',
-        stdout: 'inherit',
-        stderr: 'inherit',
-      }),
-    )
-    .pipe(
-      Effect.filterOrFail(
-        (exitCode) => exitCode === 0,
-        (exitCode) => new CommandFailed({ commandLine, exitCode }),
-      ),
-    )
+
+  yield* processes.inherit(commandLine, { workingDirectory: home, environment: { HOME: home } })
 })
 
 export const runMise = Effect.fn('runMise')(function* (miseArguments: readonly string[]) {

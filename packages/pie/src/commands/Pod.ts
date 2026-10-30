@@ -14,7 +14,7 @@ import {
   writeClaudeInstructions,
 } from '../Claude.ts'
 import { configFilePathOf, loadConfig, RepositoryName } from '../ConfigRepo.ts'
-import { RecipeName, recipeNameOf, requireRecipeTags, tagsOfThisVm } from '../ExeDev.ts'
+import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import {
   cloneMissingRepositories,
   configRepositoryOf,
@@ -23,10 +23,11 @@ import {
 } from '../Git.ts'
 import { installTools, runTasks } from '../Mise.ts'
 import { Box, HomeSets } from '../Pod.ts'
+import { Process } from '../Process.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
-const PodLayer = Layer.mergeAll(Box.layer, HomeSets.layer)
+const PodLayer = Layer.mergeAll(Box.layer, HomeSets.layer, Process.layer, ExeDev.layer)
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
   recipeName: RecipeName,
@@ -48,9 +49,10 @@ export const pod = Command.make('pod').pipe(
         ),
       },
       Effect.fn(function* ({ configRepository }) {
+        const exeDev = yield* ExeDev
         const homeSets = yield* HomeSets
         const repositoryName = yield* configRepositoryOf(configRepository)
-        const vmTags = yield* tagsOfThisVm
+        const vmTags = yield* exeDev.vmTags()
         const recipeName = yield* recipeNameOf(vmTags)
         const { checkoutDirectory, commit } = yield* syncConfigCheckout(repositoryName)
 
@@ -62,7 +64,7 @@ export const pod = Command.make('pod').pipe(
           onSome: Effect.succeed,
         })
 
-        yield* requireRecipeTags(recipeName, recipe.tags, vmTags)
+        yield* exeDev.requireRecipeTags(recipeName, recipe.tags, vmTags)
 
         const claudeConfig = claudeConfigOf(recipe)
         const claudeState = yield* readClaudeState()
