@@ -17,6 +17,11 @@ type BlockMarkers = readonly [startMarker: string, endMarker: string]
 
 type BoxRoot = 'home' | 'configHome' | 'cacheHome'
 
+interface OwnershipManifests<Manifest> {
+  readonly union: Manifest
+  readonly final: Manifest
+}
+
 interface BoxLocation {
   readonly root: BoxRoot
   readonly relativePath: string
@@ -254,7 +259,36 @@ export class Box extends Context.Service<Box>()('pie/Box', {
       yield* fileSystem.rename(temporaryFilePath, filePath)
     })
 
-    return { home, paths, writeFileIfChanged, updateTextFile, readJsonFile, writeJsonFile }
+    const failIfPresent = Effect.fn('Box.failIfPresent')(function* <Failure>(
+      filePath: string,
+      failureOf: () => Failure,
+    ) {
+      yield* fileSystem
+        .exists(filePath)
+        .pipe(Effect.filterOrFail((fileExists) => !fileExists, failureOf))
+    })
+
+    const writeOwned = Effect.fn('Box.writeOwned')(function* <Manifest, Failure, Requirements>(
+      manifestJson: Schema.Codec<Manifest, string>,
+      manifestPath: string,
+      manifests: OwnershipManifests<Manifest>,
+      applyChanges: Effect.Effect<void, Failure, Requirements>,
+    ) {
+      yield* writeJsonFile(manifestJson, manifestPath, manifests.union)
+      yield* applyChanges
+      yield* writeJsonFile(manifestJson, manifestPath, manifests.final)
+    })
+
+    return {
+      home,
+      paths,
+      writeFileIfChanged,
+      updateTextFile,
+      readJsonFile,
+      writeJsonFile,
+      failIfPresent,
+      writeOwned,
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
@@ -283,11 +317,9 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
         (homeFile) => {
           const filePath = path.join(box.home, homeFile.homePath)
 
-          return fileSystem.exists(filePath).pipe(
-            Effect.filterOrFail(
-              (fileExists) => !fileExists,
-              () => new HomeFileNotPies({ filePath, homeName: homeFile.homeName }),
-            ),
+          return box.failIfPresent(
+            filePath,
+            () => new HomeFileNotPies({ filePath, homeName: homeFile.homeName }),
           )
         },
         { discard: true },
@@ -334,35 +366,43 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
         homeManifest.appendedBlocks,
       )
 
-      yield* box.writeJsonFile(HomeManifestJson, manifestPath, {
-        copiedFiles: Arr.union(previousHomeManifest.copiedFiles, homeManifest.copiedFiles),
-        appendedBlocks: [...homeManifest.appendedBlocks, ...staleBlocks],
-      })
-      yield* Effect.forEach(
-        Arr.difference(previousHomeManifest.copiedFiles, homeManifest.copiedFiles),
-        (homePath) => fileSystem.remove(path.join(box.home, homePath), { force: true }),
-        { discard: true },
+      yield* box.writeOwned(
+        HomeManifestJson,
+        manifestPath,
+        {
+          union: {
+            copiedFiles: Arr.union(previousHomeManifest.copiedFiles, homeManifest.copiedFiles),
+            appendedBlocks: [...homeManifest.appendedBlocks, ...staleBlocks],
+          },
+          final: homeManifest,
+        },
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            Arr.difference(previousHomeManifest.copiedFiles, homeManifest.copiedFiles),
+            (homePath) => fileSystem.remove(path.join(box.home, homePath), { force: true }),
+            { discard: true },
+          )
+          yield* Effect.forEach(
+            copiedHomeFilesOf(homeFiles),
+            (homeFile) =>
+              box.writeFileIfChanged(
+                path.join(box.home, homeFile.homePath),
+                homeFile.content,
+                homeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
+              ),
+            { discard: true },
+          )
+          yield* Effect.forEach(
+            pipe(
+              [...homeManifest.appendedBlocks, ...staleBlocks],
+              Arr.map((block) => block.homePath),
+              Arr.dedupe,
+            ),
+            (homePath) => updateBlocks(homePath, homeFiles, staleBlocks),
+            { discard: true },
+          )
+        }),
       )
-      yield* Effect.forEach(
-        copiedHomeFilesOf(homeFiles),
-        (homeFile) =>
-          box.writeFileIfChanged(
-            path.join(box.home, homeFile.homePath),
-            homeFile.content,
-            homeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
-          ),
-        { discard: true },
-      )
-      yield* Effect.forEach(
-        pipe(
-          [...homeManifest.appendedBlocks, ...staleBlocks],
-          Arr.map((block) => block.homePath),
-          Arr.dedupe,
-        ),
-        (homePath) => updateBlocks(homePath, homeFiles, staleBlocks),
-        { discard: true },
-      )
-      yield* box.writeJsonFile(HomeManifestJson, manifestPath, homeManifest)
     })
 
     return { readManifest, failOnForeign, apply }

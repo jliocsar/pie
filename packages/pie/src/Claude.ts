@@ -1,7 +1,9 @@
 import * as Arr from 'effect/Array'
 import { pipe } from 'effect/Function'
+import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
@@ -25,7 +27,15 @@ import {
   withBlock,
 } from './Pod.ts'
 
+interface ClaudeState {
+  readonly previousManifest: Manifest
+  readonly claudeMcpNames: readonly string[]
+}
+
 const CLAUDE_ENTRY_SEGMENT_COUNT = 2
+const MANIFEST_FILE_NAME = 'manifest.json'
+const SETTINGS_FILE_NAME = 'settings.json'
+const INSTRUCTIONS_FILE_NAME = 'CLAUDE.md'
 
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
@@ -66,18 +76,6 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
   }
 }
 
-const claudePaths = Effect.gen(function* () {
-  const path = yield* Path.Path
-  const box = yield* Box
-
-  return {
-    claudeDirectory: box.paths.claudeDirectory,
-    settingsPath: path.join(box.paths.claudeDirectory, 'settings.json'),
-    statePath: box.paths.claudeState,
-    manifestPath: path.join(box.paths.pieConfigDirectory, 'manifest.json'),
-  }
-})
-
 export const claudeConfigOf = (recipe: ResolvedRecipe) => ({
   files: recipe.claude.files,
   settings: recipe.claude.settings,
@@ -86,198 +84,11 @@ export const claudeConfigOf = (recipe: ResolvedRecipe) => ({
 
 type ClaudeConfig = ReturnType<typeof claudeConfigOf>
 
-export const readClaudeState = Effect.fn('readClaudeState')(function* () {
-  const box = yield* Box
-  const paths = yield* claudePaths
-  const previousManifest = yield* box.readJsonFile(ManifestJson, paths.manifestPath, EMPTY_MANIFEST)
-  const claudeState = yield* box.readJsonFile(ClaudeStateJson, paths.statePath, {})
-
-  return { previousManifest, claudeMcpNames: Record.keys(claudeState.mcpServers ?? {}) }
-})
-
-type ClaudeState = Effect.Success<ReturnType<typeof readClaudeState>>
-
 const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
   Arr.map(claudeConfig.files, (claudeFile) => claudeFile.claudePath)
 
 const entryOf = (claudeFilePath: string) =>
   Arr.take(claudeFilePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
-
-export const failOnForeignClaudeConfig = Effect.fn('failOnForeignClaudeConfig')(function* (
-  claudeConfig: ClaudeConfig,
-  { previousManifest, claudeMcpNames }: ClaudeState,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const { claudeDirectory } = yield* claudePaths
-  const ownedEntries = Arr.map(previousManifest.claudeFiles, entryOf)
-  const newEntries = pipe(
-    claudeFilePathsOf(claudeConfig),
-    Arr.map(entryOf),
-    Arr.dedupe,
-    Arr.difference(ownedEntries),
-  )
-
-  yield* Effect.forEach(
-    newEntries,
-    (entry) => {
-      const entryPath = path.join(claudeDirectory, entry)
-
-      return fileSystem.exists(entryPath).pipe(
-        Effect.filterOrFail(
-          (entryExists) => !entryExists,
-          () => new ClaudeEntryNotPies({ entryPath }),
-        ),
-      )
-    },
-    { discard: true },
-  )
-  yield* Arr.findFirst(
-    Record.keys(claudeConfig.mcpServers),
-    (mcpName) =>
-      Arr.contains(claudeMcpNames, mcpName) && !Record.has(previousManifest.mcpServers, mcpName),
-  ).pipe(
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (mcpName) => Effect.fail(new McpServerNotPies({ mcpName })),
-    }),
-  )
-})
-
-const removeEmptyDirectory = Effect.fn('removeEmptyDirectory')(function* (directory: string) {
-  const fileSystem = yield* FileSystem.FileSystem
-
-  if (!(yield* fileSystem.exists(directory))) {
-    return
-  }
-
-  if (Arr.isReadonlyArrayEmpty(yield* fileSystem.readDirectory(directory))) {
-    yield* fileSystem.remove(directory, { recursive: true })
-  }
-})
-
-const removeStaleClaudeFile = Effect.fn('removeStaleClaudeFile')(function* (
-  claudeDirectory: string,
-  claudeFilePath: string,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const segments = claudeFilePath.split('/')
-  const directoriesInsideEntry = pipe(
-    segments,
-    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
-    Arr.filter(
-      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
-    ),
-    Arr.map((prefix) => path.join(claudeDirectory, ...prefix)),
-  )
-
-  yield* fileSystem.remove(path.join(claudeDirectory, claudeFilePath), { force: true })
-  yield* Effect.forEach(Arr.reverse(directoriesInsideEntry), removeEmptyDirectory, {
-    discard: true,
-  })
-})
-
-const syncMcpServers = Effect.fn('syncMcpServers')(function* (
-  mcpServers: ClaudeConfig['mcpServers'],
-  { previousManifest, claudeMcpNames }: ClaudeState,
-) {
-  const mise = yield* Mise
-  const runClaudeMcp = (claudeMcpArguments: readonly string[]) =>
-    mise.exec(['claude', 'mcp', ...claudeMcpArguments])
-  const removeMcpServer = (mcpName: string) =>
-    runClaudeMcp(['remove', '--scope', 'user', mcpName]).pipe(
-      Effect.when(Effect.succeed(Arr.contains(claudeMcpNames, mcpName))),
-    )
-  const addMcpServer = (mcpName: string, mcpServer: McpServer) =>
-    runClaudeMcp(['add-json', '--scope', 'user', mcpName, JSON.stringify(mcpServer)])
-  const staleMcpNames = Arr.difference(
-    Record.keys(previousManifest.mcpServers),
-    Record.keys(mcpServers),
-  )
-
-  yield* Effect.forEach(
-    Record.toEntries(mcpServers),
-    ([mcpName, mcpServer]) => {
-      const alreadyAdded =
-        Arr.contains(claudeMcpNames, mcpName) &&
-        Option.exists(Record.get(previousManifest.mcpServers, mcpName), (previousMcpServer) =>
-          isSameMcpServer(previousMcpServer, mcpServer),
-        )
-
-      return alreadyAdded
-        ? Effect.void
-        : removeMcpServer(mcpName).pipe(Effect.andThen(addMcpServer(mcpName, mcpServer)))
-    },
-    { discard: true },
-  )
-  yield* Effect.forEach(staleMcpNames, removeMcpServer, { discard: true })
-})
-
-const mergeClaudeSettings = Effect.fn('mergeClaudeSettings')(function* (
-  settingsPath: string,
-  claudeSettings: ClaudeSettings,
-  previousManifest: Manifest,
-) {
-  const box = yield* Box
-  const staleKeys = Arr.difference(previousManifest.claudeSettingsKeys, Record.keys(claudeSettings))
-
-  if (Record.isEmptyRecord(claudeSettings) && Arr.isReadonlyArrayEmpty(staleKeys)) {
-    return
-  }
-
-  const currentSettings = yield* box.readJsonFile(ClaudeSettingsJson, settingsPath, {})
-  const mergedSettings = {
-    ...Record.filter(currentSettings, (_value, key) => !Arr.contains(staleKeys, key)),
-    ...claudeSettings,
-  }
-
-  const settingsText = yield* Schema.encodeEffect(ClaudeSettingsJson)(mergedSettings)
-
-  yield* box.writeFileIfChanged(settingsPath, `${settingsText}\n`, REGULAR_FILE_MODE)
-})
-
-export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
-  claudeConfig: ClaudeConfig,
-  claudeState: ClaudeState,
-) {
-  const path = yield* Path.Path
-  const box = yield* Box
-  const paths = yield* claudePaths
-  const { previousManifest } = claudeState
-  const claudeFilePaths = claudeFilePathsOf(claudeConfig)
-
-  yield* box.writeJsonFile(ManifestJson, paths.manifestPath, {
-    claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
-    claudeSettingsKeys: Arr.union(
-      previousManifest.claudeSettingsKeys,
-      Record.keys(claudeConfig.settings),
-    ),
-    mcpServers: { ...previousManifest.mcpServers, ...claudeConfig.mcpServers },
-  })
-  yield* Effect.forEach(
-    claudeConfig.files,
-    (claudeFile) =>
-      box.writeFileIfChanged(
-        path.join(paths.claudeDirectory, claudeFile.claudePath),
-        claudeFile.content,
-        claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
-      ),
-    { discard: true },
-  )
-  yield* Effect.forEach(
-    Arr.difference(previousManifest.claudeFiles, claudeFilePaths),
-    (claudeFilePath) => removeStaleClaudeFile(paths.claudeDirectory, claudeFilePath),
-    { discard: true },
-  )
-  yield* mergeClaudeSettings(paths.settingsPath, claudeConfig.settings, previousManifest)
-  yield* syncMcpServers(claudeConfig.mcpServers, claudeState)
-  yield* box.writeJsonFile(ManifestJson, paths.manifestPath, {
-    claudeFiles: claudeFilePaths,
-    claudeSettingsKeys: Record.keys(claudeConfig.settings),
-    mcpServers: claudeConfig.mcpServers,
-  })
-})
 
 export const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
   `## pie
@@ -291,22 +102,219 @@ This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
 - \`pie pod up\` re-applies the recipe.
 `
 
-export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(function* (
-  recipeName: RecipeName,
-  configRepository: RepositoryName,
-  claudeMdTexts: readonly string[],
-) {
-  const path = yield* Path.Path
-  const box = yield* Box
-  const { claudeDirectory } = yield* claudePaths
-  const blockContent = pipe(
-    [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
-    Arr.map(Str.trim),
-    Arr.filter(Str.isNonEmpty),
-    Arr.join('\n\n'),
-  )
+export class Claude extends Context.Service<Claude>()('pie/Claude', {
+  make: Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const box = yield* Box
+    const mise = yield* Mise
+    const claudeDirectory = box.paths.claudeDirectory
+    const settingsPath = path.join(claudeDirectory, SETTINGS_FILE_NAME)
+    const manifestPath = path.join(box.paths.pieConfigDirectory, MANIFEST_FILE_NAME)
 
-  yield* box.updateTextFile(path.join(claudeDirectory, 'CLAUDE.md'), (text) =>
-    withBlock(text, MARKDOWN_BLOCK_MARKERS, blockContent),
+    const readState = Effect.fn('Claude.readState')(function* () {
+      const previousManifest = yield* box.readJsonFile(ManifestJson, manifestPath, EMPTY_MANIFEST)
+      const claudeState = yield* box.readJsonFile(ClaudeStateJson, box.paths.claudeState, {})
+      const state: ClaudeState = {
+        previousManifest,
+        claudeMcpNames: Record.keys(claudeState.mcpServers ?? {}),
+      }
+
+      return state
+    })
+
+    const failOnForeign = Effect.fn('Claude.failOnForeign')(function* (
+      claudeConfig: ClaudeConfig,
+      { previousManifest, claudeMcpNames }: ClaudeState,
+    ) {
+      const ownedEntries = Arr.map(previousManifest.claudeFiles, entryOf)
+      const newEntries = pipe(
+        claudeFilePathsOf(claudeConfig),
+        Arr.map(entryOf),
+        Arr.dedupe,
+        Arr.difference(ownedEntries),
+      )
+
+      yield* Effect.forEach(
+        newEntries,
+        (entry) => {
+          const entryPath = path.join(claudeDirectory, entry)
+
+          return box.failIfPresent(entryPath, () => new ClaudeEntryNotPies({ entryPath }))
+        },
+        { discard: true },
+      )
+      yield* Arr.findFirst(
+        Record.keys(claudeConfig.mcpServers),
+        (mcpName) =>
+          Arr.contains(claudeMcpNames, mcpName) &&
+          !Record.has(previousManifest.mcpServers, mcpName),
+      ).pipe(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (mcpName) => Effect.fail(new McpServerNotPies({ mcpName })),
+        }),
+      )
+    })
+
+    const removeEmptyDirectory = Effect.fn('Claude.removeEmptyDirectory')(function* (
+      directory: string,
+    ) {
+      if (!(yield* fileSystem.exists(directory))) {
+        return
+      }
+
+      if (Arr.isReadonlyArrayEmpty(yield* fileSystem.readDirectory(directory))) {
+        yield* fileSystem.remove(directory, { recursive: true })
+      }
+    })
+
+    const removeStaleFile = Effect.fn('Claude.removeStaleFile')(function* (claudeFilePath: string) {
+      const segments = claudeFilePath.split('/')
+      const directoriesInsideEntry = pipe(
+        segments,
+        Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
+        Arr.filter(
+          (prefix) =>
+            prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
+        ),
+        Arr.map((prefix) => path.join(claudeDirectory, ...prefix)),
+      )
+
+      yield* fileSystem.remove(path.join(claudeDirectory, claudeFilePath), { force: true })
+      yield* Effect.forEach(Arr.reverse(directoriesInsideEntry), removeEmptyDirectory, {
+        discard: true,
+      })
+    })
+
+    const runClaudeMcp = (claudeMcpArguments: readonly string[]) =>
+      mise.exec(['claude', 'mcp', ...claudeMcpArguments])
+
+    const syncMcpServers = Effect.fn('Claude.syncMcpServers')(function* (
+      mcpServers: ClaudeConfig['mcpServers'],
+      { previousManifest, claudeMcpNames }: ClaudeState,
+    ) {
+      const removeMcpServer = Effect.fn('Claude.removeMcpServer')(function* (mcpName: string) {
+        if (Arr.contains(claudeMcpNames, mcpName)) {
+          yield* runClaudeMcp(['remove', '--scope', 'user', mcpName])
+        }
+      })
+      const addMcpServer = (mcpName: string, mcpServer: McpServer) =>
+        runClaudeMcp(['add-json', '--scope', 'user', mcpName, JSON.stringify(mcpServer)])
+      const staleMcpNames = Arr.difference(
+        Record.keys(previousManifest.mcpServers),
+        Record.keys(mcpServers),
+      )
+
+      yield* Effect.forEach(
+        Record.toEntries(mcpServers),
+        ([mcpName, mcpServer]) => {
+          const alreadyAdded =
+            Arr.contains(claudeMcpNames, mcpName) &&
+            Option.exists(Record.get(previousManifest.mcpServers, mcpName), (previousMcpServer) =>
+              isSameMcpServer(previousMcpServer, mcpServer),
+            )
+
+          return alreadyAdded
+            ? Effect.void
+            : removeMcpServer(mcpName).pipe(Effect.andThen(addMcpServer(mcpName, mcpServer)))
+        },
+        { discard: true },
+      )
+      yield* Effect.forEach(staleMcpNames, removeMcpServer, { discard: true })
+    })
+
+    const mergeSettings = Effect.fn('Claude.mergeSettings')(function* (
+      claudeSettings: ClaudeSettings,
+      previousManifest: Manifest,
+    ) {
+      const staleKeys = Arr.difference(
+        previousManifest.claudeSettingsKeys,
+        Record.keys(claudeSettings),
+      )
+
+      if (Record.isEmptyRecord(claudeSettings) && Arr.isReadonlyArrayEmpty(staleKeys)) {
+        return
+      }
+
+      const currentSettings = yield* box.readJsonFile(ClaudeSettingsJson, settingsPath, {})
+      const mergedSettings = {
+        ...Record.filter(currentSettings, (_value, key) => !Arr.contains(staleKeys, key)),
+        ...claudeSettings,
+      }
+      const settingsText = yield* Schema.encodeEffect(ClaudeSettingsJson)(mergedSettings)
+
+      yield* box.writeFileIfChanged(settingsPath, `${settingsText}\n`, REGULAR_FILE_MODE)
+    })
+
+    const apply = Effect.fn('Claude.apply')(function* (
+      claudeConfig: ClaudeConfig,
+      claudeState: ClaudeState,
+    ) {
+      const { previousManifest } = claudeState
+      const claudeFilePaths = claudeFilePathsOf(claudeConfig)
+
+      yield* box.writeOwned(
+        ManifestJson,
+        manifestPath,
+        {
+          union: {
+            claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
+            claudeSettingsKeys: Arr.union(
+              previousManifest.claudeSettingsKeys,
+              Record.keys(claudeConfig.settings),
+            ),
+            mcpServers: { ...previousManifest.mcpServers, ...claudeConfig.mcpServers },
+          },
+          final: {
+            claudeFiles: claudeFilePaths,
+            claudeSettingsKeys: Record.keys(claudeConfig.settings),
+            mcpServers: claudeConfig.mcpServers,
+          },
+        },
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            claudeConfig.files,
+            (claudeFile) =>
+              box.writeFileIfChanged(
+                path.join(claudeDirectory, claudeFile.claudePath),
+                claudeFile.content,
+                claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
+              ),
+            { discard: true },
+          )
+          yield* Effect.forEach(
+            Arr.difference(previousManifest.claudeFiles, claudeFilePaths),
+            removeStaleFile,
+            { discard: true },
+          )
+          yield* mergeSettings(claudeConfig.settings, previousManifest)
+          yield* syncMcpServers(claudeConfig.mcpServers, claudeState)
+        }),
+      )
+    })
+
+    const writeInstructions = Effect.fn('Claude.writeInstructions')(function* (
+      recipeName: RecipeName,
+      configRepository: RepositoryName,
+      claudeMdTexts: readonly string[],
+    ) {
+      const blockContent = pipe(
+        [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
+        Arr.map(Str.trim),
+        Arr.filter(Str.isNonEmpty),
+        Arr.join('\n\n'),
+      )
+
+      yield* box.updateTextFile(path.join(claudeDirectory, INSTRUCTIONS_FILE_NAME), (text) =>
+        withBlock(text, MARKDOWN_BLOCK_MARKERS, blockContent),
+      )
+    })
+
+    return { readState, failOnForeign, apply, writeInstructions }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Layer.mergeAll(Box.layer, Mise.layer)),
   )
-})
+}

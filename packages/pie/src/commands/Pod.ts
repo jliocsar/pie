@@ -6,22 +6,16 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
-import {
-  applyClaudeConfig,
-  claudeConfigOf,
-  failOnForeignClaudeConfig,
-  readClaudeState,
-  writeClaudeInstructions,
-} from '../Claude.ts'
+import { Claude, claudeConfigOf } from '../Claude.ts'
 import { configFilePathOf, loadConfig, RepositoryName } from '../ConfigRepo.ts'
 import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import { Git } from '../Git.ts'
 import { Mise } from '../Mise.ts'
-import { Box, HomeSets } from '../Pod.ts'
+import { HomeSets } from '../Pod.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
-const PodLayer = Layer.mergeAll(Box.layer, HomeSets.layer, ExeDev.layer, Git.layer, Mise.layer)
+const PodLayer = Layer.mergeAll(HomeSets.layer, ExeDev.layer, Git.layer, Mise.layer, Claude.layer)
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
   recipeName: RecipeName,
@@ -46,6 +40,7 @@ export const pod = Command.make('pod').pipe(
         const exeDev = yield* ExeDev
         const git = yield* Git
         const mise = yield* Mise
+        const claude = yield* Claude
         const homeSets = yield* HomeSets
         const repositoryName = yield* git.configRepository(configRepository)
         const vmTags = yield* exeDev.vmTags()
@@ -63,17 +58,17 @@ export const pod = Command.make('pod').pipe(
         yield* exeDev.requireRecipeTags(recipeName, recipe.tags, vmTags)
 
         const claudeConfig = claudeConfigOf(recipe)
-        const claudeState = yield* readClaudeState()
+        const claudeState = yield* claude.readState()
         const previousHomeManifest = yield* homeSets.readManifest()
 
-        yield* failOnForeignClaudeConfig(claudeConfig, claudeState)
+        yield* claude.failOnForeign(claudeConfig, claudeState)
         yield* homeSets.failOnForeign(recipe.home, previousHomeManifest)
         yield* mise.install(recipe.environment)
         yield* homeSets.apply(recipe.home, previousHomeManifest)
         yield* mise.runTasks(recipe.tasks)
         yield* git.cloneMissingRepositories(recipeName, recipe.repositories)
-        yield* applyClaudeConfig(claudeConfig, claudeState)
-        yield* writeClaudeInstructions(recipeName, repositoryName, recipe.claude.claude_md)
+        yield* claude.apply(claudeConfig, claudeState)
+        yield* claude.writeInstructions(recipeName, repositoryName, recipe.claude.claude_md)
         yield* Console.log(
           `Applied recipe ${recipeName} at config commit ${commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
         )

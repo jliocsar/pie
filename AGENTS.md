@@ -431,6 +431,11 @@ already exists without that fails `pod up` before anything changes, and so does 
 of the same name that pie didn't add. The manifest records the union of old and new before any
 write, so a run that dies halfway never leaves pie's own files looking like someone else's.
 
+The home sets' manifest and Claude's go through that one protocol: the union before any change,
+the final manifest after. What happens in between keeps each one's own order. Home sets remove
+stale files before writing, since a file switching from copy to append would otherwise get its
+new block and then be removed along with it.
+
 A recipe's Claude settings merge into `~/.claude/settings.json` key by key, over whatever the user
 set. The manifest records which keys pie wrote, so a key the recipe drops is removed and every
 other key is left alone. The file is written only when the merged result differs.
