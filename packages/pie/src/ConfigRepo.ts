@@ -24,13 +24,27 @@ interface ConfigLayout {
   readonly recursive: boolean
 }
 
+type ConfigParser = typeof Bun.TOML | typeof Bun.YAML | typeof JSON
+
+interface Config {
+  readonly environments: Record.ReadonlyRecord<string, ResolvedEnvironment>
+  readonly recipes: Record.ReadonlyRecord<string, Recipe>
+  readonly mcpServers: Record.ReadonlyRecord<string, McpServer>
+  readonly agents: Record.ReadonlyRecord<string, Frontmatter>
+  readonly settings: Record.ReadonlyRecord<string, ClaudeSettings>
+  readonly skills: Record.ReadonlyRecord<string, Frontmatter>
+  readonly tasks: readonly string[]
+  readonly homeSets: Record.ReadonlyRecord<string, readonly string[]>
+  readonly claudeMd: Record.ReadonlyRecord<string, string>
+}
+
 type EnvironmentResolution = Effect.Effect<
   ResolvedEnvironment,
   ConfigReferenceMissing | EnvironmentExtendsCycle
 >
 
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
-const TOML_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
+const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
 
 export const SCHEMA_DIRECTORY = '.pie/schema'
@@ -120,7 +134,7 @@ const nameOf = (referenceKind: ReferenceKind) =>
   Schema.String.annotate({ identifier: referenceKind })
 
 const withEmptyDefault = <Item extends Schema.Top>(item: Item) =>
-  Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
+  Schema.Array(item).pipe(Schema.withDecodingDefaultTypeKey(Effect.succeed([])))
 
 const namesOf = (referenceKind: ReferenceKind) => withEmptyDefault(nameOf(referenceKind))
 
@@ -238,7 +252,7 @@ export const Recipe = Schema.Struct({
   repositories: withEmptyDefault(Repository),
   skills: namesOf('skill'),
   mcp: namesOf('mcp'),
-  home: Schema.optionalKey(Schema.Array(HomeSet)),
+  home: withEmptyDefault(HomeSet),
   claude: ClaudeRecipe.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 })
 
@@ -265,22 +279,6 @@ export type Frontmatter = typeof Frontmatter.Type
 export const ClaudeSettings = Schema.Record(Schema.String, Schema.Unknown)
 
 export type ClaudeSettings = typeof ClaudeSettings.Type
-
-const ClaudeSettingsJson = Schema.fromJsonString(ClaudeSettings)
-
-const Config = Schema.Struct({
-  environments: Schema.Record(Schema.String, ResolvedEnvironment),
-  recipes: Schema.Record(Schema.String, Recipe),
-  mcpServers: Schema.Record(Schema.String, McpServer),
-  agents: Schema.Record(Schema.String, Frontmatter),
-  settings: Schema.Record(Schema.String, ClaudeSettings),
-  skills: Schema.Record(Schema.String, Frontmatter),
-  tasks: Schema.Array(Schema.String),
-  homeSets: Schema.Record(Schema.String, Schema.Array(Schema.String)),
-  claudeMd: Schema.Record(Schema.String, Schema.String),
-})
-
-type Config = typeof Config.Type
 
 export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
 
@@ -412,7 +410,7 @@ export class HomePathsOverlap extends Schema.TaggedError<HomePathsOverlap>()('Ho
 
 const decodeConfigText =
   <Decoded>(
-    parser: typeof Bun.TOML | typeof Bun.YAML,
+    parser: ConfigParser,
     schema: Schema.Decoder<Decoded>,
     parseOptions: SchemaAST.ParseOptions,
   ) =>
@@ -421,7 +419,11 @@ const decodeConfigText =
     text: string,
   ): Effect.Effect<Decoded, ConfigFileUnparseable | ConfigFileInvalid> =>
     Effect.try({
-      try: () => parser.parse(text),
+      try: () => {
+        const parsed: unknown = parser.parse(text)
+
+        return parsed
+      },
       catch: (error) => new ConfigFileUnparseable({ filePath, parserMessage: String(error) }),
     }).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(schema, parseOptions)),
@@ -518,22 +520,30 @@ export const renderSchemaFiles = (configNames: ConfigNames) =>
     ),
   )
 
-const loadTomlFiles = <Decoded>(
-  configDirectory: string,
+const loadEach = <Loaded, Failure, Requirements>(
   names: readonly string[],
-  tomlKind: TomlKind,
-  schema: Schema.Decoder<Decoded>,
+  load: (name: string) => Effect.Effect<Loaded, Failure, Requirements>,
 ) =>
-  Effect.forEach(names, (name) => {
-    const filePath = configFilePathOf(tomlKind, name)
+  Effect.forEach(names, (name) => Effect.map(load(name), (loaded) => [name, loaded] as const)).pipe(
+    Effect.map(Record.fromEntries),
+  )
+
+const loadDecoded =
+  <Decoded>(
+    configDirectory: string,
+    configKind: ConfigKind,
+    parser: ConfigParser,
+    schema: Schema.Decoder<Decoded>,
+  ) =>
+  (name: string) => {
+    const filePath = configFilePathOf(configKind, name)
 
     return readConfigFile(configDirectory, filePath).pipe(
       Effect.flatMap((text) =>
-        decodeConfigText(Bun.TOML, schema, TOML_PARSE_OPTIONS)(filePath, text),
+        decodeConfigText(parser, schema, STRICT_PARSE_OPTIONS)(filePath, text),
       ),
-      Effect.map((decoded) => [name, decoded] as const),
     )
-  }).pipe(Effect.map(Record.fromEntries))
+  }
 
 const loadFrontmatter = Effect.fn('loadFrontmatter')(function* (
   configDirectory: string,
@@ -543,13 +553,6 @@ const loadFrontmatter = Effect.fn('loadFrontmatter')(function* (
 
   return yield* extractFrontmatter(filePath, text)
 })
-
-const loadAgents = (configDirectory: string, agentNames: readonly string[]) =>
-  Effect.forEach(agentNames, (agentName) =>
-    loadFrontmatter(configDirectory, configFilePathOf('agent', agentName)).pipe(
-      Effect.map((frontmatter) => [agentName, frontmatter] as const),
-    ),
-  ).pipe(Effect.map(Record.fromEntries))
 
 const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, skillName: string) {
   const filePath = configFilePathOf('skill', skillName)
@@ -563,33 +566,8 @@ const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, ski
     })
   }
 
-  return [skillName, frontmatter] as const
+  return frontmatter
 })
-
-const loadSkills = (configDirectory: string, skillNames: readonly string[]) =>
-  Effect.forEach(skillNames, (skillName) => loadSkill(configDirectory, skillName)).pipe(
-    Effect.map(Record.fromEntries),
-  )
-
-const loadSettings = (configDirectory: string, settingsNames: readonly string[]) =>
-  Effect.forEach(settingsNames, (settingsName) => {
-    const filePath = configFilePathOf('settings', settingsName)
-
-    return readConfigFile(configDirectory, filePath).pipe(
-      Effect.flatMap(Schema.decodeEffect(ClaudeSettingsJson)),
-      Effect.catchTag('SchemaError', (schemaError) =>
-        Effect.fail(new ConfigFileInvalid({ filePath, issueMessage: schemaError.message })),
-      ),
-      Effect.map((claudeSettings) => [settingsName, claudeSettings] as const),
-    )
-  }).pipe(Effect.map(Record.fromEntries))
-
-const loadClaudeMd = (configDirectory: string, claudeMdNames: readonly string[]) =>
-  Effect.forEach(claudeMdNames, (claudeMdName) =>
-    readConfigFile(configDirectory, configFilePathOf('claude_md', claudeMdName)).pipe(
-      Effect.map((claudeMdText) => [claudeMdName, claudeMdText] as const),
-    ),
-  ).pipe(Effect.map(Record.fromEntries))
 
 const isPieOwnedHomePath = (homePath: string) =>
   Arr.some(
@@ -597,26 +575,18 @@ const isPieOwnedHomePath = (homePath: string) =>
     (pieOwnedPath) => homePath === pieOwnedPath || homePath.startsWith(`${pieOwnedPath}/`),
   )
 
-const loadHomeSets = (configDirectory: string, homeNames: readonly string[]) =>
-  Effect.forEach(homeNames, (homeName) =>
-    listDirectory(configDirectory, configEntryPathOf('home', homeName), 'File', {
-      recursive: true,
-    }).pipe(
-      Effect.tap((homePaths) =>
-        Option.match(Arr.findFirst(homePaths, isPieOwnedHomePath), {
-          onNone: () => Effect.void,
-          onSome: (homePath) =>
-            Effect.fail(
-              new HomePathPieOwned({
-                filePath: `${configEntryPathOf('home', homeName)}/${homePath}`,
-                homePath,
-              }),
-            ),
-        }),
-      ),
-      Effect.map((homePaths) => [homeName, homePaths] as const),
-    ),
-  ).pipe(Effect.map(Record.fromEntries))
+const loadHomeSet = Effect.fn('loadHomeSet')(function* (configDirectory: string, homeName: string) {
+  const homeSetDirectory = configEntryPathOf('home', homeName)
+  const homePaths = yield* listDirectory(configDirectory, homeSetDirectory, 'File', {
+    recursive: true,
+  })
+
+  return yield* Option.match(Arr.findFirst(homePaths, isPieOwnedHomePath), {
+    onNone: () => Effect.succeed(homePaths),
+    onSome: (homePath) =>
+      Effect.fail(new HomePathPieOwned({ filePath: `${homeSetDirectory}/${homePath}`, homePath })),
+  })
+})
 
 const lookUpReference =
   <Value>(
@@ -704,9 +674,9 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
 ) {
   const filePath = configFilePathOf('recipe', recipeName)
 
-  yield* Effect.fail(new RecipeNameNotTaggable({ recipeName })).pipe(
-    Effect.when(Effect.succeed(!isValidTag(`${RECIPE_TAG_PREFIX}${recipeName}`))),
-  )
+  if (!isValidTag(`${RECIPE_TAG_PREFIX}${recipeName}`)) {
+    return yield* new RecipeNameNotTaggable({ recipeName })
+  }
 
   const environment = yield* lookUpReference(
     filePath,
@@ -740,18 +710,16 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
   )
 
   const homeFiles = Arr.flatten(
-    yield* Effect.forEach(
-      Option.getOrElse(Option.fromUndefinedOr(recipe.home), Arr.empty),
-      (homeSet) =>
-        Effect.map(
-          lookUpReference(filePath, 'home', config.homeSets)(homeSet.name),
-          Arr.map((homePath) => ({
-            homeName: homeSet.name,
-            mode: homeSet.mode,
-            sourcePath: `${configEntryPathOf('home', homeSet.name)}/${homePath}`,
-            homePath,
-          })),
-        ),
+    yield* Effect.forEach(recipe.home, (homeSet) =>
+      Effect.map(
+        lookUpReference(filePath, 'home', config.homeSets)(homeSet.name),
+        Arr.map((homePath) => ({
+          homeName: homeSet.name,
+          mode: homeSet.mode,
+          sourcePath: `${configEntryPathOf('home', homeSet.name)}/${homePath}`,
+          homePath,
+        })),
+      ),
     ),
   )
 
@@ -809,11 +777,9 @@ export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
-  const environments = yield* loadTomlFiles(
-    configDirectory,
+  const environments = yield* loadEach(
     configNames.environment,
-    'environment',
-    Environment,
+    loadDecoded(configDirectory, 'environment', Bun.TOML, Environment),
   )
 
   yield* Effect.forEach(
@@ -829,14 +795,31 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
         resolveEnvironment(environments, [environmentName], environment),
       ),
     ),
-    recipes: yield* loadTomlFiles(configDirectory, configNames.recipe, 'recipe', Recipe),
-    mcpServers: yield* loadTomlFiles(configDirectory, configNames.mcp, 'mcp', McpServer),
-    agents: yield* loadAgents(configDirectory, configNames.agent),
-    settings: yield* loadSettings(configDirectory, configNames.settings),
-    skills: yield* loadSkills(configDirectory, configNames.skill),
+    recipes: yield* loadEach(
+      configNames.recipe,
+      loadDecoded(configDirectory, 'recipe', Bun.TOML, Recipe),
+    ),
+    mcpServers: yield* loadEach(
+      configNames.mcp,
+      loadDecoded(configDirectory, 'mcp', Bun.TOML, McpServer),
+    ),
+    agents: yield* loadEach(configNames.agent, (agentName) =>
+      loadFrontmatter(configDirectory, configFilePathOf('agent', agentName)),
+    ),
+    settings: yield* loadEach(
+      configNames.settings,
+      loadDecoded(configDirectory, 'settings', JSON, ClaudeSettings),
+    ),
+    skills: yield* loadEach(configNames.skill, (skillName) =>
+      loadSkill(configDirectory, skillName),
+    ),
     tasks: configNames.task,
-    homeSets: yield* loadHomeSets(configDirectory, configNames.home),
-    claudeMd: yield* loadClaudeMd(configDirectory, configNames.claude_md),
+    homeSets: yield* loadEach(configNames.home, (homeName) =>
+      loadHomeSet(configDirectory, homeName),
+    ),
+    claudeMd: yield* loadEach(configNames.claude_md, (claudeMdName) =>
+      readConfigFile(configDirectory, configFilePathOf('claude_md', claudeMdName)),
+    ),
   }
 
   const recipes = yield* Effect.all(

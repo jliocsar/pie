@@ -291,6 +291,12 @@ describe('loadConfig', () => {
       filePath: 'claude/settings/default.json',
     },
     {
+      description: 'settings that do not parse as JSON',
+      overrides: { 'claude/settings/default.json': '{ "model": "opus", }\n' },
+      errorClass: ConfigFileUnparseable,
+      filePath: 'claude/settings/default.json',
+    },
+    {
       description: 'an unknown recipe key',
       overrides: { 'recipes/personal.toml': `${RECIPE_TOML}agnets = ["oracle"]\n` },
       errorClass: ConfigFileInvalid,

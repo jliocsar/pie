@@ -349,6 +349,11 @@ the names on disk. Sync reads only file and directory names, so it works on a co
 load yet. taplo 0.10.0 reads Effect's draft 2020-12 output as-is, and flags both an unknown key and
 an unknown name (measured).
 
+The editor schemas render a schema's encoded side, so a list that defaults to empty gives its
+default as a decoded value. The encoded-value default rebuilds the encoded schema, and a name
+field nested inside it came out as a second, enum-less `$defs` entry with a numeric suffix
+(measured).
+
 Duplicate names can't happen: one file per name. A skill's frontmatter `name` must match its
 directory, as the Agent Skills spec requires. An agent's `name` only has to be non-empty, since
 Claude Code loads an agent whose name differs from its file. Agent and skill frontmatter needs only
