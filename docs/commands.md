@@ -8,7 +8,7 @@ Run `pie --help`, or `pie <command> --help`, for the full list of flags.
 pie pod up [<org>/<repo>]
 ```
 
-Runs on a pod and applies its recipe. The first run needs the config repo, and later runs remember it.
+Runs on a pod and applies its recipe. The first run needs the config repo, and later runs remember it. The config repo must be `<org>/<repo>`, whether you pass it or pie remembers it, and anything else fails before pie fetches.
 
 ### What it does, in order
 

@@ -343,6 +343,8 @@ also refuses a recipe whose file name can't follow `pie-recipe-` in an exe.dev t
 `.pie/schema/` matches what `pie sync` would write now. Without that second part, a stale enum
 flags a real name as a typo and nothing catches it.
 
+Every name that ends up in a path or a host is checked where it is decoded, never where it is used: the config repo, given or remembered, and a recipe repository are `<org>/<repo>` with no all-dots part, a repository's `dir` is relative with no empty, `.` or `..` segment, and an integration is a hostname label. Those checks are plain patterns, so the editor schemas carry them too. Recipe, repository and integration names are branded, since pie passes them side by side as strings.
+
 The loader is the only code that reads the config checkout. It returns every byte `pod up` puts
 on the box, agents, each skill's files, tasks and home files, with their executable bit, so
 nothing past it reads the checkout again and `pie check` reads exactly what `pod up` does. One

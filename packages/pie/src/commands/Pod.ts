@@ -12,8 +12,8 @@ import {
   readClaudeState,
   writeClaudeInstructions,
 } from '../Claude.ts'
-import { configFilePathOf, loadConfig } from '../ConfigRepo.ts'
-import { recipeNameOf, requireRecipeTags, tagsOfThisVm } from '../ExeDev.ts'
+import { configFilePathOf, loadConfig, RepositoryName } from '../ConfigRepo.ts'
+import { RecipeName, recipeNameOf, requireRecipeTags, tagsOfThisVm } from '../ExeDev.ts'
 import {
   cloneMissingRepositories,
   configRepositoryOf,
@@ -26,7 +26,7 @@ import { applyHomeFiles, failOnForeignHomeFiles, readHomeManifest } from '../Pod
 const COMMIT_ABBREVIATION_LENGTH = 7
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
-  recipeName: Schema.String,
+  recipeName: RecipeName,
 }) {
   override get message(): string {
     return `This VM is tagged for recipe ${this.recipeName}, but ${configFilePathOf('recipe', this.recipeName)} doesn't exist in the config repo.`
@@ -38,7 +38,12 @@ export const pod = Command.make('pod').pipe(
   Command.withSubcommands([
     Command.make(
       'up',
-      { configRepository: Argument.String('org/repo').pipe(Argument.optional) },
+      {
+        configRepository: Argument.String('org/repo').pipe(
+          Argument.withSchema(RepositoryName),
+          Argument.optional,
+        ),
+      },
       Effect.fn(function* ({ configRepository }) {
         const repositoryName = yield* configRepositoryOf(configRepository)
         const vmTags = yield* tagsOfThisVm

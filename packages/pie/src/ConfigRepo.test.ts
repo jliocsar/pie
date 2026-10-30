@@ -107,6 +107,7 @@ describe('loadConfig', () => {
       Effect.gen(function* () {
         const config = yield* loadConfigFrom(VALID_CONFIG_FILES)
         const recipe = yield* Effect.fromOption(Record.get(config.recipes, 'personal'))
+        const repositories: readonly Record.ReadonlyRecord<string, string>[] = recipe.repositories
 
         expect(config.environments['personal']?.env).toEqual({ GH_HOST: 'github.int.exe.xyz' })
         expect(config.settings).toEqual({ default: { model: 'opus' } })
@@ -114,7 +115,7 @@ describe('loadConfig', () => {
           node: { version: '24.19.0' },
           'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
         })
-        expect(recipe.repositories).toEqual([
+        expect(repositories).toEqual([
           { repo: 'jliocsar/pie', dir: 'jliocsar/pie', integration: 'github' },
           { repo: 'jliocsar/nidus', dir: 'nidus', integration: 'github' },
           {
@@ -346,6 +347,39 @@ describe('loadConfig', () => {
       },
       errorClass: ConfigFileInvalid,
       filePath: 'environments/personal.toml',
+    },
+    {
+      description: 'a repository dir that climbs out of ~/workspace',
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace('dir = "nidus"', 'dir = "../../.ssh"'),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: 'an absolute repository dir',
+      overrides: { 'recipes/personal.toml': RECIPE_TOML.replace('dir = "nidus"', 'dir = "/etc"') },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: 'a repository named with a .. part',
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace('"jliocsar/pie"', '"jliocsar/.."'),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: 'an integration that is no hostname label',
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace(
+          'integration = "hapana-gh-git"',
+          'integration = "evil.example/x"',
+        ),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
     },
     {
       description: 'broken TOML',

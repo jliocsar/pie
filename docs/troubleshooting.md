@@ -17,6 +17,8 @@ Every pie error says what's wrong and, where it can, the fix. This page groups t
 | Error says                                                | Fix                                                                                                                      |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | pie doesn't know this VM's config repo yet                | Run `pie pod up <org>/<repo>` once.                                                                                      |
+| X holds "Y", which isn't an <org>/<repo> config repo      | The remembered config repo is broken. Run `pie pod up <org>/<repo>` to replace it.                                       |
+| Invalid value for argument <org/repo>                     | Pass the config repo as `<org>/<repo>`.                                                                                  |
 | pie couldn't reach X through exe.dev's github integration | Attach a GitHub integration that reaches the repo to the tag it names.                                                   |
 | pie couldn't reach X through exe.dev's Y integration      | Check that Y is attached to the tag it names, and that its token can read the repo. See [repositories](repositories.md). |
 | `git … exited with …`                                     | A git command failed for another reason. Its output is in the message.                                                   |

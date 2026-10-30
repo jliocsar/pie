@@ -7,7 +7,13 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
-import { ClaudeSettings, McpServer, type ResolvedRecipe } from './ConfigRepo.ts'
+import {
+  ClaudeSettings,
+  McpServer,
+  type RepositoryName,
+  type ResolvedRecipe,
+} from './ConfigRepo.ts'
+import type { RecipeName } from './ExeDev.ts'
 import { runMise } from './Mise.ts'
 import {
   configHome,
@@ -291,8 +297,8 @@ This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
 `
 
 export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(function* (
-  recipeName: string,
-  configRepository: string,
+  recipeName: RecipeName,
+  configRepository: RepositoryName,
   claudeMdTexts: readonly string[],
 ) {
   const path = yield* Path.Path

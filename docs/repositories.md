@@ -16,6 +16,14 @@ repositories = [
 | `{ repo, dir }`         | `~/workspace/<dir>`        | exe.dev's GitHub integration     |
 | `{ repo, integration }` | `~/workspace/<org>/<repo>` | the named http-proxy integration |
 
+Each value becomes part of a path or a host, so the loader checks it before anything clones:
+
+- `repo` is `<org>/<repo>`, each part using only letters, digits, `_`, `-` and `.`, and neither part only dots.
+- `dir` is a relative path inside `~/workspace`: no leading `/`, and no empty, `.` or `..` segment.
+- `integration` is a hostname label: `a-z`, `0-9` and `-`, starting and ending with a letter or digit.
+
+`pie check` and `pod up` report a value that breaks one of these as invalid, naming the recipe file.
+
 A repository clones only when its directory is missing, and pie never pulls it. Your branches and work in progress are safe across `pod up`. Dropping a repository from a recipe leaves its checkout on the pod.
 
 ## Through the GitHub integration

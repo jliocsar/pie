@@ -2,15 +2,16 @@ import * as Arr from 'effect/Array'
 import * as Config from 'effect/Config'
 import * as Effect from 'effect/Effect'
 import { pipe } from 'effect/Function'
+import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
+const INTEGRATION_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
 const DEFAULT_INTEGRATION_URL = 'https://{integration}.int.exe.xyz'
 const INTEGRATION_PLACEHOLDER = '{integration}'
 
-export const GITHUB_INTEGRATION = 'github'
 export const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
@@ -23,7 +24,22 @@ export const TagName = Schema.String.check(
   Schema.isPattern(TAG_PATTERN, { message: 'An exe.dev tag uses only a-z, 0-9, _ and -.' }),
 )
 
-export const integrationUrlOf = (integrationName: string) =>
+export const RecipeName = TagName.pipe(Schema.brand('RecipeName'))
+
+export type RecipeName = typeof RecipeName.Type
+
+export const IntegrationName = Schema.String.check(
+  Schema.isPattern(INTEGRATION_PATTERN, {
+    message:
+      'An integration name becomes the host <integration>.int.exe.xyz, so it uses only a-z, 0-9 and -, and starts and ends with a letter or digit.',
+  }),
+).pipe(Schema.brand('IntegrationName'))
+
+export type IntegrationName = typeof IntegrationName.Type
+
+export const GITHUB_INTEGRATION = IntegrationName.make('github')
+
+export const integrationUrlOf = (integrationName: IntegrationName) =>
   Config.String('PIE_INTEGRATION_URL').pipe(
     Config.withDefault(DEFAULT_INTEGRATION_URL),
     Config.map((integrationUrl) =>
@@ -40,7 +56,7 @@ export const RequiredTagName = TagName.check(
   ),
 )
 
-export const isValidTag = Schema.is(TagName)
+export const isRecipeName = Schema.is(RecipeName)
 
 const listOf = (names: readonly string[]) =>
   Arr.isReadonlyArrayNonEmpty(names) ? names.join(', ') : 'none'
@@ -133,12 +149,15 @@ export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonl
     onNonEmpty: ([recipeTag, ...otherRecipeTags]) =>
       Arr.isReadonlyArrayNonEmpty(otherRecipeTags)
         ? Effect.fail(new RecipeTagsConflict({ recipeTags }))
-        : Effect.succeed(recipeTag.slice(RECIPE_TAG_PREFIX.length)),
+        : Option.match(Schema.decodeOption(RecipeName)(recipeTag.slice(RECIPE_TAG_PREFIX.length)), {
+            onNone: () => Effect.fail(new RecipeTagMissing({ vmTags })),
+            onSome: Effect.succeed,
+          }),
   })
 })
 
 export const requireRecipeTags = Effect.fn('requireRecipeTags')(function* (
-  recipeName: string,
+  recipeName: RecipeName,
   recipeTags: readonly string[],
   vmTags: readonly string[],
 ) {

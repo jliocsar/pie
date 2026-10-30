@@ -12,6 +12,7 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
+import * as CliError from 'effect/unstable/cli/CliError'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { pie } from './Cli.ts'
@@ -31,7 +32,7 @@ import {
   RepositoryUnreachable,
   VmTagsMissing,
 } from './ExeDev.ts'
-import { runGit } from './Git.ts'
+import { RememberedConfigRepositoryInvalid, runGit } from './Git.ts'
 import { HomeFileNotPies } from './Pod.ts'
 import {
   commitToConfigSource,
@@ -507,11 +508,50 @@ describe('pie pod up', () => {
           const doubleTagged = yield* Effect.flip(
             runPieOn('double', ['pod', 'up', CONFIG_REPOSITORY], ['pie-recipe-a', 'pie-recipe-b']),
           )
+          const nameless = yield* Effect.flip(
+            runPieOn('nameless', ['pod', 'up', CONFIG_REPOSITORY], ['pie', 'pie-recipe-']),
+          )
 
           expect(untagged).toEqual(new RecipeTagMissing({ vmTags: ['pie'] }))
+          expect(nameless).toEqual(new RecipeTagMissing({ vmTags: ['pie', 'pie-recipe-'] }))
           expect(doubleTagged).toEqual(
             new RecipeTagsConflict({ recipeTags: ['pie-recipe-a', 'pie-recipe-b'] }),
           )
+        }),
+      ),
+    ))
+
+  test("a config repo that isn't <org>/<repo>, given or remembered, fails before pie fetches anything", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+          const rememberedPath = path.join(home, '.config', 'pie', 'config-repo')
+
+          yield* prepareBox(home)
+
+          const given = yield* Effect.flip(runPieOn('pod', ['pod', 'up', '../..']))
+
+          yield* fileSystem.makeDirectory(path.dirname(rememberedPath), { recursive: true })
+          yield* fileSystem.writeFileString(rememberedPath, '../..\n')
+
+          const remembered = yield* Effect.flip(runPieOn('pod', ['pod', 'up']))
+          const cacheWritten = yield* fileSystem.exists(path.join(home, '.cache'))
+
+          expect(given).toBeInstanceOf(CliError.ShowHelp)
+          expect(Schema.is(CliError.ShowHelp)(given) ? given.errors : []).toMatchObject([
+            { kind: 'argument', option: 'org/repo', value: '../..' },
+          ])
+          expect(remembered).toEqual(
+            new RememberedConfigRepositoryInvalid({
+              filePath: rememberedPath,
+              rememberedText: '../..',
+            }),
+          )
+          expect(cacheWritten).toBe(false)
         }),
       ),
     ))

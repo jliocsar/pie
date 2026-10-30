@@ -10,7 +10,13 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import type * as SchemaAST from 'effect/SchemaAST'
 import * as SchemaTransformation from 'effect/SchemaTransformation'
-import { GITHUB_INTEGRATION, isValidTag, RECIPE_TAG_PREFIX, RequiredTagName } from './ExeDev.ts'
+import {
+  GITHUB_INTEGRATION,
+  IntegrationName,
+  isRecipeName,
+  RECIPE_TAG_PREFIX,
+  RequiredTagName,
+} from './ExeDev.ts'
 
 type ConfigKind = ReferenceKind | 'recipe'
 
@@ -66,6 +72,8 @@ type EnvironmentResolution = Effect.Effect<
 >
 
 const EXECUTABLE_MODE_BITS = 0o111
+const REPOSITORY_NAME_PATTERN = /^\.*[\w-][\w.-]*\/\.*[\w-][\w.-]*$/u
+const REPOSITORY_DIRECTORY_PATTERN = /^\.*[^/.][^/]*(?:\/\.*[^/.][^/]*)*$/u
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
@@ -199,26 +207,40 @@ export const Environment = Schema.Struct({
 
 export type Environment = typeof Environment.Type
 
-export const RepositoryName = Schema.String.check(Schema.isPattern(/^[\w.-]+\/[\w.-]+$/u))
+export const RepositoryName = Schema.String.check(
+  Schema.isPattern(REPOSITORY_NAME_PATTERN, {
+    message:
+      'A repository is <org>/<repo>, each part using only letters, digits, _, - and ., and neither part only dots.',
+  }),
+).pipe(Schema.brand('RepositoryName'))
+
+export type RepositoryName = typeof RepositoryName.Type
+
+const RepositoryDirectory = Schema.String.check(
+  Schema.isPattern(REPOSITORY_DIRECTORY_PATTERN, {
+    message:
+      "A repository's dir is a relative path inside ~/workspace: no leading /, and no empty, . or .. segment.",
+  }),
+)
 
 const RepositoryTable = Schema.Struct({
   repo: RepositoryName,
-  dir: Schema.optionalKey(Schema.String),
-  integration: Schema.optionalKey(Schema.String),
+  dir: Schema.optionalKey(RepositoryDirectory),
+  integration: Schema.optionalKey(IntegrationName),
 })
 
 const RepositoryCheckout = Schema.Struct({
   repo: RepositoryName,
-  dir: Schema.String,
-  integration: Schema.String,
+  dir: RepositoryDirectory,
+  integration: IntegrationName,
 })
 
 export const Repository = Schema.Union([
   RepositoryName.pipe(
     Schema.decodeTo(
-      RepositoryTable,
+      Schema.toType(RepositoryTable),
       SchemaTransformation.transform({
-        decode: (repo: string) => ({ repo }),
+        decode: (repo: RepositoryName) => ({ repo }),
         encode: (repositoryTable) => repositoryTable.repo,
       }),
     ),
@@ -226,7 +248,7 @@ export const Repository = Schema.Union([
   RepositoryTable,
 ]).pipe(
   Schema.decodeTo(
-    RepositoryCheckout,
+    Schema.toType(RepositoryCheckout),
     SchemaTransformation.transform({
       decode: ({
         repo,
@@ -776,7 +798,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
 ) {
   const filePath = configFilePathOf('recipe', recipeName)
 
-  if (!isValidTag(`${RECIPE_TAG_PREFIX}${recipeName}`)) {
+  if (!isRecipeName(recipeName)) {
     return yield* new RecipeNameNotTaggable({ recipeName })
   }
 

@@ -7,12 +7,13 @@ import * as Stream from 'effect/Stream'
 import * as Str from 'effect/String'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
-import type { Repository } from './ConfigRepo.ts'
+import { type Repository, RepositoryName } from './ConfigRepo.ts'
 import {
   GITHUB_INTEGRATION,
   integrationUrlOf,
   POD_TAG,
   RECIPE_TAG_PREFIX,
+  type RecipeName,
   RepositoryUnreachable,
 } from './ExeDev.ts'
 import {
@@ -30,6 +31,15 @@ export class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepository
 ) {
   override get message(): string {
     return "pie doesn't know this VM's config repo yet. Run `pie pod up <org>/<repo>` once, and later runs remember it."
+  }
+}
+
+export class RememberedConfigRepositoryInvalid extends Schema.TaggedError<RememberedConfigRepositoryInvalid>()(
+  'RememberedConfigRepositoryInvalid',
+  { filePath: Schema.String, rememberedText: Schema.String },
+) {
+  override get message(): string {
+    return `${this.filePath} holds "${this.rememberedText}", which isn't an <org>/<repo> config repo. Run \`pie pod up <org>/<repo>\` to replace it.`
   }
 }
 
@@ -80,7 +90,7 @@ const failAsUnreachable =
     )
 
 export const configRepositoryOf = Effect.fn('configRepositoryOf')(function* (
-  configRepositoryArgument: Option.Option<string>,
+  configRepositoryArgument: Option.Option<RepositoryName>,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const rememberedPath = yield* rememberedConfigRepositoryPath
@@ -95,12 +105,21 @@ export const configRepositoryOf = Effect.fn('configRepositoryOf')(function* (
         ),
         Effect.andThen(fileSystem.readFileString(rememberedPath)),
         Effect.map(Str.trim),
+        Effect.flatMap((rememberedText) =>
+          Schema.decodeEffect(RepositoryName)(rememberedText).pipe(
+            Effect.catchTag('SchemaError', () =>
+              Effect.fail(
+                new RememberedConfigRepositoryInvalid({ filePath: rememberedPath, rememberedText }),
+              ),
+            ),
+          ),
+        ),
       ),
   })
 })
 
 export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(function* (
-  repositoryName: string,
+  repositoryName: RepositoryName,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -118,7 +137,7 @@ export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(fu
 })
 
 export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
-  repositoryName: string,
+  repositoryName: RepositoryName,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -148,7 +167,7 @@ export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
 })
 
 export const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(function* (
-  recipeName: string,
+  recipeName: RecipeName,
   repositories: readonly Repository[],
 ) {
   const fileSystem = yield* FileSystem.FileSystem
