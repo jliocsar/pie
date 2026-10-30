@@ -142,7 +142,21 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Each module owns its own paths, so there's no shared paths object. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+
+The box's top-level layout is one home-relative table: each place pie claims under HOME, the root it
+hangs off (HOME, the XDG config dir or the XDG cache dir), and whether pie owns it or only appends
+to it. The box resolves that table once, against HOME and the XDG dirs it reads once. The loader's
+refusal of a home set landing on pie's own files derives from the same table, and so do the
+`$HOME/…` lines pie writes into shell files and the paths its Claude instructions name, so none of
+them can drift from where pie actually writes. The loader checks against the XDG defaults rather
+than the box's own dirs, since `pie check` runs off the box. What lies inside one of those places
+belongs to the module that writes it, so below that level there's still no shared paths object.
+
+Every outside system is a service whose hand-written layer provides what the service itself
+depends on, so whoever provides it sees only the service. The entry point provides only the
+platform. Each subcommand provides the services it uses, so `check` and `sync` never build what
+only `pod up` needs, and never read HOME.
 
 A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
 
@@ -484,51 +498,4 @@ The description documents the change, nothing else:
 
 - The summary is plain prose at the very top — no heading above it, no `### Summary`. The PR title
   is already rendered; do not restate it.
-- Smallest heading allowed is `###`, and only when the description genuinely splits into sections.
-  Never `#` or `##`.
-- Prefer a code snippet to a paragraph. A ` ```ts ` or ` ```diff ` block showing the new shape beats
-  prose describing it; add prose only for the "why" a snippet cannot carry.
-- Cut anything that restates the diff, and anything that reads like marketing.
-- **Never** a "Test plan", "Testing", or TODO checklist. Skip examples entirely for trivial fixes,
-  internal refactors and doc-only changes.
-
-Outstanding work, manual verification or review items do NOT go in the description or a comment.
-Mark the PR **draft** and say what is outstanding in the chat that asked for it.
-
-:::warning
-Write the body to a file and pass `--body-file`; never inline it:
-
-```sh
-gh pr create --body-file tmp/pr-body.md   # write it with Write, not a heredoc
-```
-
-`--body "$(cat <<'EOF' … EOF)"` mangles backticks and backslashes in some shell/`gh` combinations —
-inline code spans arrive as literal `` \` ``. `--body-file` sidesteps shell quoting entirely. If
-`gh pr edit --body-file` silently no-ops on an older `gh`, fall back to
-`gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@tmp/pr-body.md`.
-:::
-
-## Changing this file
-
-Where review feedback gets settled once instead of repeated.
-
-Trigger: repetition, or obvious generality. Asked twice = already a pattern, codify then. A first
-request that is plainly general (`never read _tag` is about every file) gets promoted immediately.
-
-Strongest enforcement available, in order:
-
-1. An oxlint rule — machine-checked, cannot drift, often auto-fixable. Prefer a built-in; add a
-   `begone-slop` rule, in its own repo and with its own tests, only when oxlint has none.
-2. A line here — every agent reads it, but prose can be misread. A one-off measured fact goes here
-   too, stated as a fact rather than a rule. Never a comment; `no-comments` rejects one.
-
-Codify in the same change as the fix, never "later"; a pattern living only in a conversation dies
-with the session.
-
-:::warning
-Rules are not immutable. When the user contradicts one, fix the rule — do not special-case the call
-site. `expect-padding` was built from a misread brief and had to be inverted; that was a bug in the
-rule, not licence for an exception.
-:::
-
-Do not over-codify. A preference about one file, or a judgement needing taste, is not a pattern.
+- Smallest heading allowed is `###`, and only w

@@ -1,5 +1,6 @@
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
@@ -21,9 +22,11 @@ import {
   syncConfigCheckout,
 } from '../Git.ts'
 import { installTools, runTasks } from '../Mise.ts'
-import { applyHomeFiles, failOnForeignHomeFiles, readHomeManifest } from '../Pod.ts'
+import { Box, HomeSets } from '../Pod.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
+
+const PodLayer = Layer.mergeAll(Box.layer, HomeSets.layer)
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
   recipeName: RecipeName,
@@ -45,6 +48,7 @@ export const pod = Command.make('pod').pipe(
         ),
       },
       Effect.fn(function* ({ configRepository }) {
+        const homeSets = yield* HomeSets
         const repositoryName = yield* configRepositoryOf(configRepository)
         const vmTags = yield* tagsOfThisVm
         const recipeName = yield* recipeNameOf(vmTags)
@@ -62,12 +66,12 @@ export const pod = Command.make('pod').pipe(
 
         const claudeConfig = claudeConfigOf(recipe)
         const claudeState = yield* readClaudeState()
-        const previousHomeManifest = yield* readHomeManifest()
+        const previousHomeManifest = yield* homeSets.readManifest()
 
         yield* failOnForeignClaudeConfig(claudeConfig, claudeState)
-        yield* failOnForeignHomeFiles(recipe.home, previousHomeManifest)
+        yield* homeSets.failOnForeign(recipe.home, previousHomeManifest)
         yield* installTools(recipe.environment)
-        yield* applyHomeFiles(recipe.home, previousHomeManifest)
+        yield* homeSets.apply(recipe.home, previousHomeManifest)
         yield* runTasks(recipe.tasks)
         yield* cloneMissingRepositories(recipeName, recipe.repositories)
         yield* applyClaudeConfig(claudeConfig, claudeState)
@@ -77,6 +81,7 @@ export const pod = Command.make('pod').pipe(
         )
       }),
     ).pipe(
+      Command.provide(PodLayer),
       Command.withDescription(
         "Apply this VM's recipe, named by its pie-recipe-<name> tag, from the config repo. The first run needs <org/repo>; later runs remember it.",
       ),

@@ -16,14 +16,7 @@ import {
   type RecipeName,
   RepositoryUnreachable,
 } from './ExeDev.ts'
-import {
-  cacheHome,
-  configHome,
-  homeDirectory,
-  PRIVATE_DIRECTORY_MODE,
-  REGULAR_FILE_MODE,
-  writeFileIfChanged,
-} from './Pod.ts'
+import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Pod.ts'
 
 export class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepositoryUnknown>()(
   'ConfigRepositoryUnknown',
@@ -55,8 +48,9 @@ export class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()('Gi
 
 const rememberedConfigRepositoryPath = Effect.gen(function* () {
   const path = yield* Path.Path
+  const box = yield* Box
 
-  return path.join(yield* configHome, 'pie', 'config-repo')
+  return path.join(box.paths.pieConfigDirectory, 'config-repo')
 })
 
 export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
@@ -123,17 +117,14 @@ export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(fu
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const box = yield* Box
   const rememberedPath = yield* rememberedConfigRepositoryPath
 
   yield* fileSystem.makeDirectory(path.dirname(rememberedPath), {
     recursive: true,
     mode: PRIVATE_DIRECTORY_MODE,
   })
-  yield* writeFileIfChanged(
-    rememberedPath,
-    new TextEncoder().encode(`${repositoryName}\n`),
-    REGULAR_FILE_MODE,
-  )
+  yield* box.writeFileIfChanged(rememberedPath, `${repositoryName}\n`, REGULAR_FILE_MODE)
 })
 
 export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
@@ -141,7 +132,8 @@ export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const checkoutDirectory = path.join(yield* cacheHome, 'pie', repositoryName)
+  const box = yield* Box
+  const checkoutDirectory = path.join(box.paths.pieCacheDirectory, repositoryName)
 
   const route = { repositoryName, integrationName: GITHUB_INTEGRATION, integrationTag: POD_TAG }
 
@@ -172,7 +164,8 @@ export const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(fu
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const workspaceDirectory = path.join(yield* homeDirectory, 'workspace')
+  const box = yield* Box
+  const workspaceDirectory = box.paths.workspace
 
   yield* Effect.forEach(
     repositories,

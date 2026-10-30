@@ -17,6 +17,7 @@ import {
   RECIPE_TAG_PREFIX,
   RequiredTagName,
 } from './ExeDev.ts'
+import { APPEND_ONLY_HOME_PATHS, BOX_LAYOUT, homePathOf, PIE_OWNED_HOME_PATHS } from './Pod.ts'
 
 type ConfigKind = ReferenceKind | 'recipe'
 
@@ -79,20 +80,6 @@ const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error'
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
 
 export const SCHEMA_DIRECTORY = '.pie/schema'
-
-const PIE_OWNED_HOME_PATHS = [
-  '.claude',
-  '.claude.json',
-  '.config/pie',
-  '.config/mise',
-  '.cache/pie',
-  '.local/bin/pie',
-  '.local/bin/mise',
-  '.local/share/mise',
-  'workspace',
-]
-
-const APPEND_ONLY_HOME_PATHS = ['.profile', '.zshrc']
 
 const CONFIG_LAYOUT: Record.ReadonlyRecord<ConfigKind, ConfigLayout> = {
   recipe: {
@@ -218,8 +205,7 @@ export type RepositoryName = typeof RepositoryName.Type
 
 const RepositoryDirectory = Schema.String.check(
   Schema.isPattern(REPOSITORY_DIRECTORY_PATTERN, {
-    message:
-      "A repository's dir is a relative path inside ~/workspace: no leading /, and no empty, . or .. segment.",
+    message: `A repository's dir is a relative path inside ~/${homePathOf(BOX_LAYOUT.workspace)}: no leading /, and no empty, . or .. segment.`,
   }),
 )
 

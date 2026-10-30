@@ -8,20 +8,19 @@ import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import type { ResolvedEnvironment, TaskFile, ToolRequest } from './ConfigRepo.ts'
 import {
-  configHome,
+  BOX_LAYOUT,
+  Box,
   EXECUTABLE_FILE_MODE,
-  homeDirectory,
   REGULAR_FILE_MODE,
   shellBlockMarkersOf,
-  updateTextFile,
+  shellPathOf,
   withBlock,
-  writeFileIfChanged,
 } from './Pod.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'
-const MISE_SHIMS_PATH_LINE = 'export PATH="$HOME/.local/share/mise/shims:$PATH"'
-const MISE_ZSH_ACTIVATE_LINE = 'eval "$($HOME/.local/bin/mise activate zsh)"'
 const MISE_TOOL_AUTO_UPDATE_LINE = 'tool_update.global_auto = true'
+const MISE_SHIMS_PATH_LINE = `export PATH="${shellPathOf(BOX_LAYOUT.miseDataDirectory)}/shims:$PATH"`
+const MISE_ZSH_ACTIVATE_LINE = `eval "$(${shellPathOf(BOX_LAYOUT.miseBinary)} activate zsh)"`
 
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
   commandLine: Schema.Array(Schema.String),
@@ -32,15 +31,9 @@ export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandF
   }
 }
 
-const misePath = Effect.gen(function* () {
-  const path = yield* Path.Path
-
-  return path.join(yield* homeDirectory, '.local', 'bin', 'mise')
-})
-
 const runCommand = Effect.fn('runCommand')(function* (commandLine: readonly [string, ...string[]]) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  const home = yield* homeDirectory
+  const { home } = yield* Box
   const [command, ...commandArguments] = commandLine
   yield* spawner
     .exitCode(
@@ -62,7 +55,9 @@ const runCommand = Effect.fn('runCommand')(function* (commandLine: readonly [str
 })
 
 export const runMise = Effect.fn('runMise')(function* (miseArguments: readonly string[]) {
-  yield* runCommand([yield* misePath, ...miseArguments])
+  const box = yield* Box
+
+  yield* runCommand([box.paths.miseBinary, ...miseArguments])
 })
 
 const tomlInlineTableOf = (toolRequest: ToolRequest) =>
@@ -94,8 +89,9 @@ const miseConfigOf = (environment: ResolvedEnvironment) =>
 const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* () {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const box = yield* Box
 
-  if (yield* fileSystem.exists(yield* misePath)) {
+  if (yield* fileSystem.exists(box.paths.miseBinary)) {
     return
   }
 
@@ -107,19 +103,19 @@ const installMiseWhenMissing = Effect.fn('installMiseWhenMissing')(function* () 
 
 export const installTools = Effect.fn('installTools')(function* (environment: ResolvedEnvironment) {
   const path = yield* Path.Path
-  const home = yield* homeDirectory
+  const box = yield* Box
 
   yield* installMiseWhenMissing()
-  yield* writeFileIfChanged(
-    path.join(yield* configHome, 'mise', 'conf.d', 'pie.toml'),
-    new TextEncoder().encode(miseConfigOf(environment)),
+  yield* box.writeFileIfChanged(
+    path.join(box.paths.miseConfigDirectory, 'conf.d', 'pie.toml'),
+    miseConfigOf(environment),
     REGULAR_FILE_MODE,
   )
   yield* runMise(['install'])
-  yield* updateTextFile(path.join(home, '.profile'), (text) =>
+  yield* box.updateTextFile(box.paths.profile, (text) =>
     withBlock(text, shellBlockMarkersOf('mise'), MISE_SHIMS_PATH_LINE),
   )
-  yield* updateTextFile(path.join(home, '.zshrc'), (text) =>
+  yield* box.updateTextFile(box.paths.zshrc, (text) =>
     withBlock(text, shellBlockMarkersOf('mise'), MISE_ZSH_ACTIVATE_LINE),
   )
 })
@@ -127,6 +123,7 @@ export const installTools = Effect.fn('installTools')(function* (environment: Re
 export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly TaskFile[]) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const box = yield* Box
   const taskDirectory = yield* fileSystem.makeTempDirectoryScoped()
 
   yield* Effect.forEach(
@@ -134,9 +131,9 @@ export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly TaskFil
     (task) => {
       const taskPath = path.join(taskDirectory, task.taskName)
 
-      return writeFileIfChanged(taskPath, task.content, EXECUTABLE_FILE_MODE).pipe(
-        Effect.andThen(runMise(['exec', '--', taskPath])),
-      )
+      return box
+        .writeFileIfChanged(taskPath, task.content, EXECUTABLE_FILE_MODE)
+        .pipe(Effect.andThen(runMise(['exec', '--', taskPath])))
     },
     { discard: true },
   )

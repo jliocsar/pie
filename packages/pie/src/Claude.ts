@@ -16,16 +16,13 @@ import {
 import type { RecipeName } from './ExeDev.ts'
 import { runMise } from './Mise.ts'
 import {
-  configHome,
-  decodeJsonFile,
+  BOX_LAYOUT,
+  Box,
   EXECUTABLE_FILE_MODE,
-  homeDirectory,
+  homePathOf,
   MARKDOWN_BLOCK_MARKERS,
   REGULAR_FILE_MODE,
-  updateTextFile,
   withBlock,
-  writeFileIfChanged,
-  writeManifest,
 } from './Pod.ts'
 
 const CLAUDE_ENTRY_SEGMENT_COUNT = 2
@@ -50,8 +47,6 @@ const ClaudeStateJson = Schema.fromJsonString(
   }),
 )
 
-const writeClaudeManifest = writeManifest(ManifestJson)
-
 const isSameMcpServer = Schema.toEquivalence(McpServer)
 
 export class ClaudeEntryNotPies extends Schema.TaggedError<ClaudeEntryNotPies>()(
@@ -73,13 +68,13 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
 
 const claudePaths = Effect.gen(function* () {
   const path = yield* Path.Path
-  const home = yield* homeDirectory
+  const box = yield* Box
 
   return {
-    claudeDirectory: path.join(home, '.claude'),
-    settingsPath: path.join(home, '.claude', 'settings.json'),
-    statePath: path.join(home, '.claude.json'),
-    manifestPath: path.join(yield* configHome, 'pie', 'manifest.json'),
+    claudeDirectory: box.paths.claudeDirectory,
+    settingsPath: path.join(box.paths.claudeDirectory, 'settings.json'),
+    statePath: box.paths.claudeState,
+    manifestPath: path.join(box.paths.pieConfigDirectory, 'manifest.json'),
   }
 })
 
@@ -92,9 +87,10 @@ export const claudeConfigOf = (recipe: ResolvedRecipe) => ({
 type ClaudeConfig = ReturnType<typeof claudeConfigOf>
 
 export const readClaudeState = Effect.fn('readClaudeState')(function* () {
+  const box = yield* Box
   const paths = yield* claudePaths
-  const previousManifest = yield* decodeJsonFile(ManifestJson)(paths.manifestPath, EMPTY_MANIFEST)
-  const claudeState = yield* decodeJsonFile(ClaudeStateJson)(paths.statePath, {})
+  const previousManifest = yield* box.readJsonFile(ManifestJson, paths.manifestPath, EMPTY_MANIFEST)
+  const claudeState = yield* box.readJsonFile(ClaudeStateJson, paths.statePath, {})
 
   return { previousManifest, claudeMcpNames: Record.keys(claudeState.mcpServers ?? {}) }
 })
@@ -222,13 +218,14 @@ const mergeClaudeSettings = Effect.fn('mergeClaudeSettings')(function* (
   claudeSettings: ClaudeSettings,
   previousManifest: Manifest,
 ) {
+  const box = yield* Box
   const staleKeys = Arr.difference(previousManifest.claudeSettingsKeys, Record.keys(claudeSettings))
 
   if (Record.isEmptyRecord(claudeSettings) && Arr.isReadonlyArrayEmpty(staleKeys)) {
     return
   }
 
-  const currentSettings = yield* decodeJsonFile(ClaudeSettingsJson)(settingsPath, {})
+  const currentSettings = yield* box.readJsonFile(ClaudeSettingsJson, settingsPath, {})
   const mergedSettings = {
     ...Record.filter(currentSettings, (_value, key) => !Arr.contains(staleKeys, key)),
     ...claudeSettings,
@@ -236,11 +233,7 @@ const mergeClaudeSettings = Effect.fn('mergeClaudeSettings')(function* (
 
   const settingsText = yield* Schema.encodeEffect(ClaudeSettingsJson)(mergedSettings)
 
-  yield* writeFileIfChanged(
-    settingsPath,
-    new TextEncoder().encode(`${settingsText}\n`),
-    REGULAR_FILE_MODE,
-  )
+  yield* box.writeFileIfChanged(settingsPath, `${settingsText}\n`, REGULAR_FILE_MODE)
 })
 
 export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
@@ -248,11 +241,12 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   claudeState: ClaudeState,
 ) {
   const path = yield* Path.Path
+  const box = yield* Box
   const paths = yield* claudePaths
   const { previousManifest } = claudeState
   const claudeFilePaths = claudeFilePathsOf(claudeConfig)
 
-  yield* writeClaudeManifest(paths.manifestPath, {
+  yield* box.writeJsonFile(ManifestJson, paths.manifestPath, {
     claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),
     claudeSettingsKeys: Arr.union(
       previousManifest.claudeSettingsKeys,
@@ -263,7 +257,7 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   yield* Effect.forEach(
     claudeConfig.files,
     (claudeFile) =>
-      writeFileIfChanged(
+      box.writeFileIfChanged(
         path.join(paths.claudeDirectory, claudeFile.claudePath),
         claudeFile.content,
         claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
@@ -277,7 +271,7 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
   )
   yield* mergeClaudeSettings(paths.settingsPath, claudeConfig.settings, previousManifest)
   yield* syncMcpServers(claudeConfig.mcpServers, claudeState)
-  yield* writeClaudeManifest(paths.manifestPath, {
+  yield* box.writeJsonFile(ManifestJson, paths.manifestPath, {
     claudeFiles: claudeFilePaths,
     claudeSettingsKeys: Record.keys(claudeConfig.settings),
     mcpServers: claudeConfig.mcpServers,
@@ -289,9 +283,9 @@ export const claudeInstructionsOf = (recipeName: string, configRepository: strin
 
 This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
 
-- The config repo is the source of truth. pie owns the tools, the home set files and \`~/.claude\`'s agents, settings, skills and MCPs. \`pie pod up\` overwrites local edits to them, so change the config repo instead. \`~/.config/pie/*manifest.json\` lists what pie owns.
+- The config repo is the source of truth. pie owns the tools, the home set files and \`~/.claude\`'s agents, settings, skills and MCPs. \`pie pod up\` overwrites local edits to them, so change the config repo instead. \`~/${homePathOf(BOX_LAYOUT.pieConfigDirectory)}/*manifest.json\` lists what pie owns.
 - Tools are pinned by mise. To add one, add it to the recipe's environment rather than installing it globally.
-- Repos live in \`~/workspace\`.
+- Repos live in \`~/${homePathOf(BOX_LAYOUT.workspace)}\`.
 - There are no secrets on this box. exe.dev integrations add auth at the network edge. If a request is denied, an integration is probably missing. Tell the user which one; don't ask for a token.
 - \`pie pod up\` re-applies the recipe.
 `
@@ -302,6 +296,7 @@ export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(func
   claudeMdTexts: readonly string[],
 ) {
   const path = yield* Path.Path
+  const box = yield* Box
   const { claudeDirectory } = yield* claudePaths
   const blockContent = pipe(
     [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
@@ -310,7 +305,7 @@ export const writeClaudeInstructions = Effect.fn('writeClaudeInstructions')(func
     Arr.join('\n\n'),
   )
 
-  yield* updateTextFile(path.join(claudeDirectory, 'CLAUDE.md'), (text) =>
+  yield* box.updateTextFile(path.join(claudeDirectory, 'CLAUDE.md'), (text) =>
     withBlock(text, MARKDOWN_BLOCK_MARKERS, blockContent),
   )
 })
