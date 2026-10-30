@@ -10,9 +10,8 @@ import * as Str from 'effect/String'
 import {
   ClaudeSettings,
   configFilePathOf,
-  HttpMcpServer,
   listDirectory,
-  type McpServer,
+  McpServer,
   type ResolvedRecipe,
 } from './ConfigRepo.ts'
 import { runMise } from './Mise.ts'
@@ -32,21 +31,10 @@ import {
 
 const CLAUDE_ENTRY_SEGMENT_COUNT = 2
 
-const ClaudeMcpServer = Schema.Union([
-  Schema.Struct({ type: Schema.Literal('http'), url: Schema.String }),
-  Schema.Struct({
-    type: Schema.Literal('stdio'),
-    command: Schema.String,
-    args: Schema.Array(Schema.String),
-  }),
-])
-
-type ClaudeMcpServer = typeof ClaudeMcpServer.Type
-
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
   claudeSettingsKeys: Schema.Array(Schema.String),
-  mcpServers: Schema.Record(Schema.String, ClaudeMcpServer),
+  mcpServers: Schema.Record(Schema.String, McpServer),
 })
 
 type Manifest = typeof Manifest.Type
@@ -65,9 +53,7 @@ const ClaudeStateJson = Schema.fromJsonString(
 
 const writeClaudeManifest = writeManifest(ManifestJson)
 
-const isSameMcpServer = Schema.toEquivalence(ClaudeMcpServer)
-
-const isHttpMcpServer = Schema.is(HttpMcpServer)
+const isSameMcpServer = Schema.toEquivalence(McpServer)
 
 export class ClaudeEntryNotPies extends Schema.TaggedError<ClaudeEntryNotPies>()(
   'ClaudeEntryNotPies',
@@ -97,11 +83,6 @@ const claudePaths = Effect.gen(function* () {
     manifestPath: path.join(yield* configHome, 'pie', 'manifest.json'),
   }
 })
-
-const claudeMcpServerOf = (mcpServer: McpServer): ClaudeMcpServer =>
-  isHttpMcpServer(mcpServer)
-    ? { type: 'http', url: mcpServer.url }
-    : { type: 'stdio', command: mcpServer.command, args: mcpServer.args }
 
 const readSkillFiles = Effect.fn('readSkillFiles')(function* (
   configDirectory: string,
@@ -134,7 +115,7 @@ export const claudeConfigOf = Effect.fn('claudeConfigOf')(function* (
   return {
     files: [...agentFiles, ...Arr.flatten(skillFiles)],
     settings: recipe.claude.settings,
-    mcpServers: Record.map(recipe.mcp, claudeMcpServerOf),
+    mcpServers: recipe.mcp,
   }
 })
 
@@ -241,7 +222,7 @@ const syncMcpServers = Effect.fn('syncMcpServers')(function* (
     runClaudeMcp(['remove', '--scope', 'user', mcpName]).pipe(
       Effect.when(Effect.succeed(Arr.contains(claudeMcpNames, mcpName))),
     )
-  const addMcpServer = (mcpName: string, mcpServer: ClaudeMcpServer) =>
+  const addMcpServer = (mcpName: string, mcpServer: McpServer) =>
     runClaudeMcp(['add-json', '--scope', 'user', mcpName, JSON.stringify(mcpServer)])
   const staleMcpNames = Arr.difference(
     Record.keys(previousManifest.mcpServers),

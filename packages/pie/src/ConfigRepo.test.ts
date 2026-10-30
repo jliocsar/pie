@@ -128,7 +128,10 @@ describe('loadConfig', () => {
           { homeName: 'zsh', mode: 'append', sourcePath: 'home/zsh/.zshrc', homePath: '.zshrc' },
         ])
         expect(config.recipes['personal']?.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
-        expect(config.mcpServers['fff']).toEqual({ command: 'fff-mcp', args: [] })
+        expect(config.mcpServers).toEqual({
+          executor: { type: 'http', url: 'http://executor.int.exe.xyz/mcp' },
+          fff: { type: 'stdio', command: 'fff-mcp', args: [] },
+        })
         expect(config.agents['oracle']).toEqual({
           name: 'Oracle, my Oracle',
           description: 'deep codebase questions, read-only',

@@ -258,14 +258,43 @@ export const Recipe = Schema.Struct({
 
 export type Recipe = typeof Recipe.Type
 
-export const HttpMcpServer = Schema.Struct({ url: Schema.String })
+const HttpMcpServer = Schema.Struct({ type: Schema.Literal('http'), url: Schema.String })
 
-export const StdioMcpServer = Schema.Struct({
+const StdioMcpServer = Schema.Struct({
+  type: Schema.Literal('stdio'),
   command: Schema.String,
-  args: withEmptyDefault(Schema.String),
+  args: Schema.Array(Schema.String),
 })
 
 export const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
+
+const McpServerFile = Schema.Union([
+  Schema.Struct({ url: HttpMcpServer.fields.url }).pipe(
+    Schema.decodeTo(
+      HttpMcpServer,
+      SchemaTransformation.transform({
+        decode: ({ url }): typeof HttpMcpServer.Type => ({ type: 'http', url }),
+        encode: ({ url }) => ({ url }),
+      }),
+    ),
+  ),
+  Schema.Struct({
+    command: StdioMcpServer.fields.command,
+    args: withEmptyDefault(Schema.String),
+  }).pipe(
+    Schema.decodeTo(
+      StdioMcpServer,
+      SchemaTransformation.transform({
+        decode: ({ command, args }): typeof StdioMcpServer.Type => ({
+          type: 'stdio',
+          command,
+          args,
+        }),
+        encode: ({ command, args }) => ({ command, args }),
+      }),
+    ),
+  ),
+])
 
 export type McpServer = typeof McpServer.Type
 
@@ -280,7 +309,7 @@ export const ClaudeSettings = Schema.Record(Schema.String, Schema.Unknown)
 
 export type ClaudeSettings = typeof ClaudeSettings.Type
 
-export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServer }
+export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServerFile }
 
 export type TomlKind = keyof typeof tomlSchemas
 
@@ -801,7 +830,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     ),
     mcpServers: yield* loadEach(
       configNames.mcp,
-      loadDecoded(configDirectory, 'mcp', Bun.TOML, McpServer),
+      loadDecoded(configDirectory, 'mcp', Bun.TOML, McpServerFile),
     ),
     agents: yield* loadEach(configNames.agent, (agentName) =>
       loadFrontmatter(configDirectory, configFilePathOf('agent', agentName)),
