@@ -10,10 +10,10 @@
     "test": "bun run --filter '*' --if-present test",
     "typecheck": "bun run --filter '*' --if-present typecheck",
     "build": "bun run --filter '*' --if-present build",
-    "lint": "oxlint --deny-warnings",
-    "lint:fix": "oxlint --fix --deny-warnings",
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check",
+    "lint": "oxlint --deny-warnings --disable-nested-config",
+    "lint:fix": "oxlint --fix --deny-warnings --disable-nested-config",
+    "fmt": "oxfmt --disable-nested-config",
+    "fmt:check": "oxfmt --check --disable-nested-config",
     "prepare": "husky && effect-tsgo patch --oxlint"
   },
   "devDependencies": {

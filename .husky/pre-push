@@ -2,5 +2,5 @@
 # Whole-repo pass: catches drift on files the staged pass never saw, which is
 # exactly what the type-aware rules are for.
 
-node_modules/.bin/oxlint --deny-warnings --no-error-on-unmatched-pattern || exit 1
-bunx oxfmt --check || exit 1
+node_modules/.bin/oxlint --deny-warnings --no-error-on-unmatched-pattern --disable-nested-config || exit 1
+bunx oxfmt --check --disable-nested-config || exit 1

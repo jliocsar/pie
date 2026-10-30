@@ -5,8 +5,8 @@
 staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|json)$' || true)
 
 if [ -n "$staged" ]; then
-  printf '%s\n' "$staged" | xargs bunx oxfmt || exit 1
-  printf '%s\n' "$staged" | xargs node_modules/.bin/oxlint --fix --deny-warnings --no-error-on-unmatched-pattern || exit 1
+  printf '%s\n' "$staged" | xargs bunx oxfmt --disable-nested-config || exit 1
+  printf '%s\n' "$staged" | xargs node_modules/.bin/oxlint --fix --deny-warnings --no-error-on-unmatched-pattern --disable-nested-config || exit 1
   git update-index --again
 fi
 
