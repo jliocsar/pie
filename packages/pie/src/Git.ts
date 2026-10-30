@@ -1,5 +1,7 @@
+import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
@@ -15,6 +17,13 @@ import {
 import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Pod.ts'
 import { Process } from './Process.ts'
 
+interface GitRoute {
+  readonly repositoryName: string
+  readonly integrationName: string
+  readonly integrationTag: string
+}
+
+const REMEMBERED_CONFIG_REPOSITORY_FILE_NAME = 'config-repo'
 const GIT_ENVIRONMENT = { GIT_TERMINAL_PROMPT: '0' }
 
 export class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepositoryUnknown>()(
@@ -54,119 +63,105 @@ export class RepositoryUnreachable extends Schema.TaggedError<RepositoryUnreacha
   }
 }
 
-const rememberedConfigRepositoryPath = Effect.gen(function* () {
-  const path = yield* Path.Path
-  const box = yield* Box
-
-  return path.join(box.paths.pieConfigDirectory, 'config-repo')
-})
-
-const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
-  const processes = yield* Process
-
-  return yield* processes.capture(['git', ...gitArguments], GIT_ENVIRONMENT)
-})
-
-const failAsUnreachable =
-  (route: { repositoryName: string; integrationName: string; integrationTag: string }) =>
-  (gitEffect: ReturnType<typeof runGit>) =>
-    gitEffect.pipe(
-      Effect.catchTag('CommandFailed', (gitFailure) =>
-        Effect.fail(new RepositoryUnreachable({ ...route, gitOutput: gitFailure.commandOutput })),
-      ),
+export class Git extends Context.Service<Git>()('pie/Git', {
+  make: Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const processes = yield* Process
+    const box = yield* Box
+    const exeDev = yield* ExeDev
+    const rememberedPath = path.join(
+      box.paths.pieConfigDirectory,
+      REMEMBERED_CONFIG_REPOSITORY_FILE_NAME,
     )
 
-export const configRepositoryOf = Effect.fn('configRepositoryOf')(function* (
-  configRepositoryArgument: Option.Option<RepositoryName>,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const rememberedPath = yield* rememberedConfigRepositoryPath
+    const runGit = (gitArguments: readonly string[]) =>
+      processes.capture(['git', ...gitArguments], GIT_ENVIRONMENT)
 
-  return yield* Option.match(configRepositoryArgument, {
-    onSome: Effect.succeed,
-    onNone: () =>
-      fileSystem.exists(rememberedPath).pipe(
-        Effect.filterOrFail(
-          (remembered) => remembered,
-          () => new ConfigRepositoryUnknown(),
+    const failAsUnreachable = (route: GitRoute) => (gitEffect: ReturnType<typeof runGit>) =>
+      gitEffect.pipe(
+        Effect.catchTag('CommandFailed', (gitFailure) =>
+          Effect.fail(new RepositoryUnreachable({ ...route, gitOutput: gitFailure.commandOutput })),
         ),
-        Effect.andThen(fileSystem.readFileString(rememberedPath)),
-        Effect.map(Str.trim),
-        Effect.flatMap((rememberedText) =>
-          Schema.decodeEffect(RepositoryName)(rememberedText).pipe(
-            Effect.catchTag('SchemaError', () =>
-              Effect.fail(
-                new RememberedConfigRepositoryInvalid({ filePath: rememberedPath, rememberedText }),
+      )
+
+    const configRepository = Effect.fn('Git.configRepository')(function* (
+      configRepositoryArgument: Option.Option<RepositoryName>,
+    ) {
+      return yield* Option.match(configRepositoryArgument, {
+        onSome: Effect.succeed,
+        onNone: () =>
+          fileSystem.exists(rememberedPath).pipe(
+            Effect.filterOrFail(
+              (remembered) => remembered,
+              () => new ConfigRepositoryUnknown(),
+            ),
+            Effect.andThen(fileSystem.readFileString(rememberedPath)),
+            Effect.map(Str.trim),
+            Effect.flatMap((rememberedText) =>
+              Schema.decodeEffect(RepositoryName)(rememberedText).pipe(
+                Effect.catchTag('SchemaError', () =>
+                  Effect.fail(
+                    new RememberedConfigRepositoryInvalid({
+                      filePath: rememberedPath,
+                      rememberedText,
+                    }),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ),
-  })
-})
+      })
+    })
 
-export const rememberConfigRepository = Effect.fn('rememberConfigRepository')(function* (
-  repositoryName: RepositoryName,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const box = yield* Box
-  const rememberedPath = yield* rememberedConfigRepositoryPath
+    const remember = Effect.fn('Git.remember')(function* (repositoryName: RepositoryName) {
+      yield* fileSystem.makeDirectory(path.dirname(rememberedPath), {
+        recursive: true,
+        mode: PRIVATE_DIRECTORY_MODE,
+      })
+      yield* box.writeFileIfChanged(rememberedPath, `${repositoryName}\n`, REGULAR_FILE_MODE)
+    })
 
-  yield* fileSystem.makeDirectory(path.dirname(rememberedPath), {
-    recursive: true,
-    mode: PRIVATE_DIRECTORY_MODE,
-  })
-  yield* box.writeFileIfChanged(rememberedPath, `${repositoryName}\n`, REGULAR_FILE_MODE)
-})
+    const syncConfigCheckout = Effect.fn('Git.syncConfigCheckout')(function* (
+      repositoryName: RepositoryName,
+    ) {
+      const checkoutDirectory = path.join(box.paths.pieCacheDirectory, repositoryName)
+      const route = {
+        repositoryName,
+        integrationName: GITHUB_INTEGRATION,
+        integrationTag: POD_TAG,
+      }
 
-export const syncConfigCheckout = Effect.fn('syncConfigCheckout')(function* (
-  repositoryName: RepositoryName,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const box = yield* Box
-  const checkoutDirectory = path.join(box.paths.pieCacheDirectory, repositoryName)
+      if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
+        yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin']).pipe(
+          failAsUnreachable(route),
+        )
+        yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
+      } else {
+        yield* runGit([
+          'clone',
+          '--quiet',
+          `${exeDev.integrationUrl(GITHUB_INTEGRATION)}/${repositoryName}.git`,
+          checkoutDirectory,
+        ]).pipe(failAsUnreachable(route))
+      }
 
-  const route = { repositoryName, integrationName: GITHUB_INTEGRATION, integrationTag: POD_TAG }
+      const commit = Str.trim(yield* runGit(['-C', checkoutDirectory, 'rev-parse', 'HEAD']))
 
-  if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
-    yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin']).pipe(
-      failAsUnreachable(route),
-    )
-    yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
-  } else {
-    const githubBaseUrl = (yield* ExeDev).integrationUrl(GITHUB_INTEGRATION)
+      return { checkoutDirectory, commit }
+    })
 
-    yield* runGit([
-      'clone',
-      '--quiet',
-      `${githubBaseUrl}/${repositoryName}.git`,
-      checkoutDirectory,
-    ]).pipe(failAsUnreachable(route))
-  }
+    const cloneWhenMissing = Effect.fn('Git.cloneWhenMissing')(function* (
+      recipeName: RecipeName,
+      repository: Repository,
+    ) {
+      const checkoutPath = path.join(box.paths.workspace, repository.dir)
 
-  const commit = Str.trim(yield* runGit(['-C', checkoutDirectory, 'rev-parse', 'HEAD']))
+      if (yield* fileSystem.exists(checkoutPath)) {
+        return
+      }
 
-  return { checkoutDirectory, commit }
-})
-
-export const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(function* (
-  recipeName: RecipeName,
-  repositories: readonly Repository[],
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const box = yield* Box
-  const exeDev = yield* ExeDev
-  const workspaceDirectory = box.paths.workspace
-
-  yield* Effect.forEach(
-    repositories,
-    (repository) => {
-      const checkoutPath = path.join(workspaceDirectory, repository.dir)
-
-      return runGit([
+      yield* runGit([
         'clone',
         '--quiet',
         `${exeDev.integrationUrl(repository.integration)}/${repository.repo}.git`,
@@ -177,9 +172,24 @@ export const cloneMissingRepositories = Effect.fn('cloneMissingRepositories')(fu
           integrationName: repository.integration,
           integrationTag: `${RECIPE_TAG_PREFIX}${recipeName}`,
         }),
-        Effect.when(Effect.map(fileSystem.exists(checkoutPath), (cloned) => !cloned)),
       )
-    },
-    { discard: true },
+    })
+
+    const cloneMissingRepositories = Effect.fn('Git.cloneMissingRepositories')(function* (
+      recipeName: RecipeName,
+      repositories: readonly Repository[],
+    ) {
+      yield* Effect.forEach(
+        repositories,
+        (repository) => cloneWhenMissing(recipeName, repository),
+        { discard: true },
+      )
+    })
+
+    return { configRepository, remember, syncConfigCheckout, cloneMissingRepositories }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Layer.mergeAll(Process.layer, Box.layer, ExeDev.layer)),
   )
-})
+}

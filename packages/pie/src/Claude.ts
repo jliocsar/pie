@@ -14,7 +14,7 @@ import {
   type ResolvedRecipe,
 } from './ConfigRepo.ts'
 import type { RecipeName } from './ExeDev.ts'
-import { runMise } from './Mise.ts'
+import { Mise } from './Mise.ts'
 import {
   BOX_LAYOUT,
   Box,
@@ -182,8 +182,9 @@ const syncMcpServers = Effect.fn('syncMcpServers')(function* (
   mcpServers: ClaudeConfig['mcpServers'],
   { previousManifest, claudeMcpNames }: ClaudeState,
 ) {
+  const mise = yield* Mise
   const runClaudeMcp = (claudeMcpArguments: readonly string[]) =>
-    runMise(['exec', '--', 'claude', 'mcp', ...claudeMcpArguments])
+    mise.exec(['claude', 'mcp', ...claudeMcpArguments])
   const removeMcpServer = (mcpName: string) =>
     runClaudeMcp(['remove', '--scope', 'user', mcpName]).pipe(
       Effect.when(Effect.succeed(Arr.contains(claudeMcpNames, mcpName))),
