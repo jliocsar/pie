@@ -1,8 +1,10 @@
 import * as Arr from 'effect/Array'
 import { pipe } from 'effect/Function'
+import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as JsonSchema from 'effect/JsonSchema'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Order from 'effect/Order'
 import * as Path from 'effect/Path'
@@ -579,7 +581,7 @@ const readConfigFilesIn = Effect.fn('readConfigFilesIn')(function* (
   )
 })
 
-export const listConfigNames = Effect.fn('listConfigNames')(function* (configDirectory: string) {
+const listConfigNames = Effect.fn('listConfigNames')(function* (configDirectory: string) {
   const configNames: ConfigNames = yield* Effect.all(
     Record.map(CONFIG_LAYOUT, (configLayout) => listConfigEntries(configDirectory, configLayout)),
   )
@@ -903,7 +905,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
 
 export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
-export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
+const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
   const taskFiles = yield* loadEach(configNames.task, (taskName) =>
     readConfigFile(configDirectory, configFilePathOf('task', taskName)),
@@ -958,3 +960,21 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
 
   return { ...config, names: configNames, recipes }
 })
+
+export class ConfigRepo extends Context.Service<ConfigRepo>()('pie/ConfigRepo', {
+  make: Effect.gen(function* () {
+    const platform = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
+
+    const load = Effect.fn('ConfigRepo.load')(function* (configDirectory: string) {
+      return yield* loadConfig(configDirectory).pipe(Effect.provideContext(platform))
+    })
+
+    const listNames = Effect.fn('ConfigRepo.listNames')(function* (configDirectory: string) {
+      return yield* listConfigNames(configDirectory).pipe(Effect.provideContext(platform))
+    })
+
+    return { load, listNames }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}

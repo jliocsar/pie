@@ -158,6 +158,10 @@ depends on, so whoever provides it sees only the service. The entry point provid
 platform. Each subcommand provides the services it uses, so `check` and `sync` never build what
 only `pod up` needs, and never read HOME.
 
+The config loader stays plain functions over the file system. Its service captures the platform
+once, when its layer builds, and provides it to them on each call, so wrapping it didn't re-cut
+the loader into methods.
+
 The HTTP client is exe.dev's dependency alone, so the exe.dev service's layer provides the fetch
 client itself and the entry point doesn't. The tests still answer reflection with their own
 `fetch`, provided around the whole run: the fetch client looks `fetch` up on the fiber making

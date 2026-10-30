@@ -3,6 +3,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import * as Arr from 'effect/Array'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
+import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
@@ -12,11 +13,11 @@ import {
   ConfigNameMismatch,
   ConfigReferenceMissing,
   EnvironmentExtendsCycle,
+  ConfigRepo,
   FrontmatterMissing,
   HomeFileAppendOnly,
   HomePathPieOwned,
   HomePathsOverlap,
-  loadConfig,
   RecipeNameNotTaggable,
 } from './ConfigRepo.ts'
 
@@ -73,7 +74,9 @@ const VALID_CONFIG_FILES = {
   'home/zsh/.zshrc': "alias ll='ls -l'\n",
 } satisfies Record.ReadonlyRecord<string, string>
 
-const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
+const bunServicesRuntime = ManagedRuntime.make(
+  ConfigRepo.layer.pipe(Layer.provideMerge(BunServices.layer)),
+)
 
 const decodeText = (content: Uint8Array) => new TextDecoder().decode(content)
 
@@ -96,7 +99,9 @@ const loadConfigFrom = (configFiles: Record.ReadonlyRecord<string, string>) =>
       { discard: true },
     )
 
-    return yield* loadConfig(configDirectory)
+    const configRepo = yield* ConfigRepo
+
+    return yield* configRepo.load(configDirectory)
   }).pipe(Effect.scoped)
 
 afterAll(() => bunServicesRuntime.dispose())

@@ -7,8 +7,8 @@ import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
 import {
+  ConfigRepo,
   configFilePathOf,
-  loadConfig,
   renderSchemaFiles,
   schemaFilePathOf,
   tomlSchemas,
@@ -87,7 +87,8 @@ export const check = Command.make(
   'check',
   { configDirectory: Argument.String('dir').pipe(Argument.withDefault('.')) },
   Effect.fn(function* ({ configDirectory }) {
-    const config = yield* loadConfig(configDirectory)
+    const configRepo = yield* ConfigRepo
+    const config = yield* configRepo.load(configDirectory)
 
     if (Record.isEmptyRecord(config.recipes)) {
       return yield* new RecipesMissing({ configDirectory })
@@ -112,6 +113,7 @@ export const check = Command.make(
     return yield* Console.log('Config is valid.')
   }),
 ).pipe(
+  Command.provide(ConfigRepo.layer),
   Command.withDescription(
     'Validate a config repo checkout: the recipes, their references and the schema files. Defaults to the current directory.',
   ),

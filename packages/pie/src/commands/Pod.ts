@@ -7,7 +7,7 @@ import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
 import { Claude, claudeConfigOf } from '../Claude.ts'
-import { configFilePathOf, loadConfig, RepositoryName } from '../ConfigRepo.ts'
+import { ConfigRepo, configFilePathOf, RepositoryName } from '../ConfigRepo.ts'
 import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import { Git } from '../Git.ts'
 import { Mise } from '../Mise.ts'
@@ -15,7 +15,14 @@ import { HomeSets } from '../Pod.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
-const PodLayer = Layer.mergeAll(HomeSets.layer, ExeDev.layer, Git.layer, Mise.layer, Claude.layer)
+const PodLayer = Layer.mergeAll(
+  ConfigRepo.layer,
+  ExeDev.layer,
+  Git.layer,
+  Mise.layer,
+  HomeSets.layer,
+  Claude.layer,
+)
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
   recipeName: RecipeName,
@@ -37,6 +44,7 @@ export const pod = Command.make('pod').pipe(
         ),
       },
       Effect.fn(function* ({ configRepository }) {
+        const configRepo = yield* ConfigRepo
         const exeDev = yield* ExeDev
         const git = yield* Git
         const mise = yield* Mise
@@ -49,7 +57,7 @@ export const pod = Command.make('pod').pipe(
 
         yield* git.remember(repositoryName)
 
-        const config = yield* loadConfig(checkoutDirectory)
+        const config = yield* configRepo.load(checkoutDirectory)
         const recipe = yield* Option.match(Record.get(config.recipes, recipeName), {
           onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
           onSome: Effect.succeed,
