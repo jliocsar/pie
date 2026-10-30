@@ -18,8 +18,8 @@ import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
 import {
   ConfigFileInvalid,
-  configFilePathOf,
   ConfigReferenceMissing,
+  schemaFilePathOf,
   type TomlKind,
 } from './ConfigRepo.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
@@ -261,7 +261,7 @@ const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const schemaText = yield* fileSystem.readFileString(
-    path.join(configDirectory, configFilePathOf.schema(tomlKind)),
+    path.join(configDirectory, schemaFilePathOf(tomlKind)),
   )
   const { $defs } = yield* Schema.decodeEffect(
     Schema.fromJsonString(Schema.Struct({ $defs: Schema.Unknown })),

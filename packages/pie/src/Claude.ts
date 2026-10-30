@@ -108,7 +108,7 @@ const readSkillFiles = Effect.fn('readSkillFiles')(function* (
   skillName: string,
 ) {
   const path = yield* Path.Path
-  const skillDirectory = path.dirname(configFilePathOf.skill(skillName))
+  const skillDirectory = path.dirname(configFilePathOf('skill', skillName))
   const skillFilePaths = yield* listDirectory(configDirectory, skillDirectory, 'File', {
     recursive: true,
   })
@@ -125,7 +125,7 @@ export const claudeConfigOf = Effect.fn('claudeConfigOf')(function* (
   recipe: ResolvedRecipe,
 ) {
   const agentFiles = yield* Effect.forEach(recipe.claude.agents, (agentName) =>
-    readPodFile(configDirectory, configFilePathOf.agent(agentName), `agents/${agentName}.md`),
+    readPodFile(configDirectory, configFilePathOf('agent', agentName), `agents/${agentName}.md`),
   )
   const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
     readSkillFiles(configDirectory, skillName),

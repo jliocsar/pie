@@ -6,8 +6,14 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
-import { configFilePathOf, listConfigNames, loadConfig, type TomlKind } from '../ConfigRepo.ts'
-import { renderSchemaFiles } from './Sync.ts'
+import {
+  configFilePathOf,
+  loadConfig,
+  renderSchemaFiles,
+  schemaFilePathOf,
+  tomlSchemas,
+  type TomlKind,
+} from '../ConfigRepo.ts'
 
 const LINE_BREAK_PATTERN = /\r?\n/u
 
@@ -35,24 +41,27 @@ export class RecipesMissing extends Schema.TaggedError<RecipesMissing>()('Recipe
   configDirectory: Schema.String,
 }) {
   override get message(): string {
-    return `${this.configDirectory} has no recipes/*.toml, so it isn't a pie config. Run pie check from a config checkout, or pass its path.`
+    return `${this.configDirectory} has no ${configFilePathOf('recipe', '*')}, so it isn't a pie config. Run pie check from a config checkout, or pass its path.`
   }
 }
 
 const requireSchemaLine = Effect.fn('requireSchemaLine')(function* (
   configDirectory: string,
   tomlKind: TomlKind,
-  filePath: string,
+  name: string,
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const schemaLine = `#:schema ../${configFilePathOf.schema(tomlKind)}`
+  const filePath = configFilePathOf(tomlKind, name)
+  const schemaLine = `#:schema ${path.relative(path.dirname(filePath), schemaFilePathOf(tomlKind))}`
   const text = yield* fileSystem.readFileString(path.join(configDirectory, filePath))
   const [firstLine] = text.split(LINE_BREAK_PATTERN, 1)
 
-  yield* Effect.fail(new SchemaLineMissing({ filePath, schemaLine })).pipe(
-    Effect.when(Effect.succeed(firstLine !== schemaLine)),
-  )
+  if (firstLine !== schemaLine) {
+    return yield* new SchemaLineMissing({ filePath, schemaLine })
+  }
+
+  return text
 })
 
 const requireFreshSchemaFile = Effect.fn('requireFreshSchemaFile')(function* (
@@ -67,9 +76,11 @@ const requireFreshSchemaFile = Effect.fn('requireFreshSchemaFile')(function* (
     ? yield* fileSystem.readFileString(absoluteFilePath)
     : ''
 
-  yield* Effect.fail(new SchemaFileStale({ filePath })).pipe(
-    Effect.when(Effect.succeed(writtenText !== syncedText)),
-  )
+  if (writtenText !== syncedText) {
+    return yield* new SchemaFileStale({ filePath })
+  }
+
+  return writtenText
 })
 
 export const check = Command.make(
@@ -78,32 +89,27 @@ export const check = Command.make(
   Effect.fn(function* ({ configDirectory }) {
     const config = yield* loadConfig(configDirectory)
 
-    yield* Effect.fail(new RecipesMissing({ configDirectory })).pipe(
-      Effect.when(Effect.succeed(Record.isEmptyRecord(config.recipes))),
-    )
-
-    const tomlNames: Record.ReadonlyRecord<TomlKind, readonly string[]> = {
-      recipe: Record.keys(config.recipes),
-      environment: Record.keys(config.environments),
-      mcp: Record.keys(config.mcpServers),
+    if (Record.isEmptyRecord(config.recipes)) {
+      return yield* new RecipesMissing({ configDirectory })
     }
 
     yield* Effect.forEach(
-      Record.toEntries(tomlNames),
-      ([tomlKind, names]) =>
+      Record.keys(tomlSchemas),
+      (tomlKind) =>
         Effect.forEach(
-          names,
-          (name) => requireSchemaLine(configDirectory, tomlKind, configFilePathOf[tomlKind](name)),
+          config.names[tomlKind],
+          (name) => requireSchemaLine(configDirectory, tomlKind, name),
           { discard: true },
         ),
       { discard: true },
     )
     yield* Effect.forEach(
-      Record.toEntries(renderSchemaFiles(yield* listConfigNames(configDirectory))),
+      Record.toEntries(renderSchemaFiles(config.names)),
       ([filePath, syncedText]) => requireFreshSchemaFile(configDirectory, filePath, syncedText),
       { discard: true },
     )
-    yield* Console.log('Config is valid.')
+
+    return yield* Console.log('Config is valid.')
   }),
 ).pipe(
   Command.withDescription(

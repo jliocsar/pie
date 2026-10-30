@@ -35,7 +35,7 @@ export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('Recipe
   recipeName: Schema.String,
 }) {
   override get message(): string {
-    return `This VM is tagged for recipe ${this.recipeName}, but ${configFilePathOf.recipe(this.recipeName)} doesn't exist in the config repo.`
+    return `This VM is tagged for recipe ${this.recipeName}, but ${configFilePathOf('recipe', this.recipeName)} doesn't exist in the config repo.`
   }
 }
 
@@ -62,7 +62,7 @@ export const pod = Command.make('pod').pipe(
         yield* requireRecipeTags(recipeName, recipe.tags, vmTags)
 
         const tasks = yield* Effect.forEach(recipe.environment.tasks, (taskName) =>
-          readPodFile(checkoutDirectory, configFilePathOf.task(taskName), taskName),
+          readPodFile(checkoutDirectory, configFilePathOf('task', taskName), taskName),
         )
         const claudeConfig = yield* claudeConfigOf(checkoutDirectory, recipe)
         const claudeState = yield* readClaudeState()
