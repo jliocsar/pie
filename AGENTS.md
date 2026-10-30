@@ -343,6 +343,13 @@ also refuses a recipe whose file name can't follow `pie-recipe-` in an exe.dev t
 `.pie/schema/` matches what `pie sync` would write now. Without that second part, a stale enum
 flags a real name as a typo and nothing catches it.
 
+The loader is the only code that reads the config checkout. It returns every byte `pod up` puts
+on the box, agents, each skill's files, tasks and home files, with their executable bit, so
+nothing past it reads the checkout again and `pie check` reads exactly what `pod up` does. One
+table holds each kind's directory, extension and entry type, recipes included, and builds its
+paths, lists its names and loads it. A path bound for the box says its root in its field name,
+home-relative, `.claude`-relative or a task's name, so two roots never share one field.
+
 The schemas come from the Effect schemas. Each name field carries its reference kind as an
 identifier, which Effect turns into a `$defs` entry, and `pie sync` swaps each entry for an enum of
 the names on disk. Sync reads only file and directory names, so it works on a config that doesn't

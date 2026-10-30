@@ -6,12 +6,11 @@ import * as FileSystem from 'effect/FileSystem'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
-import type { ResolvedRecipe } from './ConfigRepo.ts'
+import type { HomeFile } from './ConfigRepo.ts'
 
 type BlockMarkers = readonly [startMarker: string, endMarker: string]
 
 const PERMISSION_BITS = 0o777
-const EXECUTABLE_MODE_BITS = 0o111
 
 export const REGULAR_FILE_MODE = 0o644
 export const EXECUTABLE_FILE_MODE = 0o755
@@ -70,22 +69,6 @@ const homeManifestPath = Effect.gen(function* () {
 
   return path.join(yield* configHome, 'pie', 'home-manifest.json')
 })
-
-export const readPodFile = Effect.fn('readPodFile')(function* (
-  configDirectory: string,
-  filePath: string,
-  podPath: string,
-) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const absoluteFilePath = path.join(configDirectory, filePath)
-  const content = yield* fileSystem.readFile(absoluteFilePath)
-  const fileInfo = yield* fileSystem.stat(absoluteFilePath)
-
-  return { path: podPath, content, executable: (fileInfo.mode & EXECUTABLE_MODE_BITS) !== 0 }
-})
-
-export type PodFile = Effect.Success<ReturnType<typeof readPodFile>>
 
 export const writeFileIfChanged = Effect.fn('writeFileIfChanged')(function* (
   filePath: string,
@@ -204,17 +187,6 @@ export const updateTextFile = Effect.fn('updateTextFile')(function* (
   yield* writeFileIfChanged(filePath, new TextEncoder().encode(updatedText), fileMode)
 })
 
-export const homeFilesOf = (configDirectory: string, recipe: ResolvedRecipe) =>
-  Effect.forEach(recipe.home, (homeFile) =>
-    Effect.map(readPodFile(configDirectory, homeFile.sourcePath, homeFile.homePath), (podFile) => ({
-      ...podFile,
-      homeName: homeFile.homeName,
-      mode: homeFile.mode,
-    })),
-  )
-
-type HomeFile = Effect.Success<ReturnType<typeof homeFilesOf>>[number]
-
 export const readHomeManifest = Effect.fn('readHomeManifest')(function* () {
   return yield* decodeJsonFile(HomeManifestJson)(yield* homeManifestPath, EMPTY_HOME_MANIFEST)
 })
@@ -223,11 +195,11 @@ const copiedHomeFilesOf = (homeFiles: readonly HomeFile[]) =>
   Arr.filter(homeFiles, (homeFile) => homeFile.mode === 'copy')
 
 const homeManifestOf = (homeFiles: readonly HomeFile[]): HomeManifest => ({
-  copiedFiles: Arr.map(copiedHomeFilesOf(homeFiles), (homeFile) => homeFile.path),
+  copiedFiles: Arr.map(copiedHomeFilesOf(homeFiles), (homeFile) => homeFile.homePath),
   appendedBlocks: pipe(
     homeFiles,
     Arr.filter((homeFile) => homeFile.mode === 'append'),
-    Arr.map((homeFile) => ({ homePath: homeFile.path, homeName: homeFile.homeName })),
+    Arr.map((homeFile) => ({ homePath: homeFile.homePath, homeName: homeFile.homeName })),
   ),
 })
 
@@ -242,10 +214,10 @@ export const failOnForeignHomeFiles = Effect.fn('failOnForeignHomeFiles')(functi
   yield* Effect.forEach(
     Arr.filter(
       copiedHomeFilesOf(homeFiles),
-      (homeFile) => !Arr.contains(previousHomeManifest.copiedFiles, homeFile.path),
+      (homeFile) => !Arr.contains(previousHomeManifest.copiedFiles, homeFile.homePath),
     ),
     (homeFile) => {
-      const filePath = path.join(home, homeFile.path)
+      const filePath = path.join(home, homeFile.homePath)
 
       return fileSystem.exists(filePath).pipe(
         Effect.filterOrFail(
@@ -267,7 +239,7 @@ const updateBlocks = Effect.fn('updateBlocks')(function* (
   const home = yield* homeDirectory
   const appendedFilesHere = Arr.filter(
     homeFiles,
-    (homeFile) => homeFile.mode === 'append' && homeFile.path === homePath,
+    (homeFile) => homeFile.mode === 'append' && homeFile.homePath === homePath,
   )
   const staleBlocksHere = Arr.filter(staleBlocks, (staleBlock) => staleBlock.homePath === homePath)
 
@@ -314,7 +286,7 @@ export const applyHomeFiles = Effect.fn('applyHomeFiles')(function* (
     copiedHomeFilesOf(homeFiles),
     (homeFile) =>
       writeFileIfChanged(
-        path.join(home, homeFile.path),
+        path.join(home, homeFile.homePath),
         homeFile.content,
         homeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
       ),

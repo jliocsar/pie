@@ -7,13 +7,7 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
-import {
-  ClaudeSettings,
-  configFilePathOf,
-  listDirectory,
-  McpServer,
-  type ResolvedRecipe,
-} from './ConfigRepo.ts'
+import { ClaudeSettings, McpServer, type ResolvedRecipe } from './ConfigRepo.ts'
 import { runMise } from './Mise.ts'
 import {
   configHome,
@@ -21,7 +15,6 @@ import {
   EXECUTABLE_FILE_MODE,
   homeDirectory,
   MARKDOWN_BLOCK_MARKERS,
-  readPodFile,
   REGULAR_FILE_MODE,
   updateTextFile,
   withBlock,
@@ -84,42 +77,13 @@ const claudePaths = Effect.gen(function* () {
   }
 })
 
-const readSkillFiles = Effect.fn('readSkillFiles')(function* (
-  configDirectory: string,
-  skillName: string,
-) {
-  const path = yield* Path.Path
-  const skillDirectory = path.dirname(configFilePathOf('skill', skillName))
-  const skillFilePaths = yield* listDirectory(configDirectory, skillDirectory, 'File', {
-    recursive: true,
-  })
-
-  return yield* Effect.forEach(skillFilePaths, (skillFilePath) => {
-    const filePath = path.join(skillDirectory, skillFilePath)
-
-    return readPodFile(configDirectory, filePath, filePath)
-  })
+export const claudeConfigOf = (recipe: ResolvedRecipe) => ({
+  files: recipe.claude.files,
+  settings: recipe.claude.settings,
+  mcpServers: recipe.mcp,
 })
 
-export const claudeConfigOf = Effect.fn('claudeConfigOf')(function* (
-  configDirectory: string,
-  recipe: ResolvedRecipe,
-) {
-  const agentFiles = yield* Effect.forEach(recipe.claude.agents, (agentName) =>
-    readPodFile(configDirectory, configFilePathOf('agent', agentName), `agents/${agentName}.md`),
-  )
-  const skillFiles = yield* Effect.forEach(recipe.skills, (skillName) =>
-    readSkillFiles(configDirectory, skillName),
-  )
-
-  return {
-    files: [...agentFiles, ...Arr.flatten(skillFiles)],
-    settings: recipe.claude.settings,
-    mcpServers: recipe.mcp,
-  }
-})
-
-type ClaudeConfig = Effect.Success<ReturnType<typeof claudeConfigOf>>
+type ClaudeConfig = ReturnType<typeof claudeConfigOf>
 
 export const readClaudeState = Effect.fn('readClaudeState')(function* () {
   const paths = yield* claudePaths
@@ -132,7 +96,7 @@ export const readClaudeState = Effect.fn('readClaudeState')(function* () {
 type ClaudeState = Effect.Success<ReturnType<typeof readClaudeState>>
 
 const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
-  Arr.map(claudeConfig.files, (claudeFile) => claudeFile.path)
+  Arr.map(claudeConfig.files, (claudeFile) => claudeFile.claudePath)
 
 const entryOf = (claudeFilePath: string) =>
   Arr.take(claudeFilePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
@@ -294,7 +258,7 @@ export const applyClaudeConfig = Effect.fn('applyClaudeConfig')(function* (
     claudeConfig.files,
     (claudeFile) =>
       writeFileIfChanged(
-        path.join(paths.claudeDirectory, claudeFile.path),
+        path.join(paths.claudeDirectory, claudeFile.claudePath),
         claudeFile.content,
         claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
       ),

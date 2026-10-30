@@ -6,12 +6,11 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
-import type { ResolvedEnvironment, ToolRequest } from './ConfigRepo.ts'
+import type { ResolvedEnvironment, TaskFile, ToolRequest } from './ConfigRepo.ts'
 import {
   configHome,
   EXECUTABLE_FILE_MODE,
   homeDirectory,
-  type PodFile,
   REGULAR_FILE_MODE,
   shellBlockMarkersOf,
   updateTextFile,
@@ -125,7 +124,7 @@ export const installTools = Effect.fn('installTools')(function* (environment: Re
   )
 })
 
-export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly PodFile[]) {
+export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly TaskFile[]) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const taskDirectory = yield* fileSystem.makeTempDirectoryScoped()
@@ -133,7 +132,7 @@ export const runTasks = Effect.fn('runTasks')(function* (tasks: readonly PodFile
   yield* Effect.forEach(
     tasks,
     (task) => {
-      const taskPath = path.join(taskDirectory, task.path)
+      const taskPath = path.join(taskDirectory, task.taskName)
 
       return writeFileIfChanged(taskPath, task.content, EXECUTABLE_FILE_MODE).pipe(
         Effect.andThen(runMise(['exec', '--', taskPath])),

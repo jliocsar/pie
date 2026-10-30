@@ -26,15 +26,37 @@ interface ConfigLayout {
 
 type ConfigParser = typeof Bun.TOML | typeof Bun.YAML | typeof JSON
 
+interface ConfigFile {
+  readonly content: Uint8Array
+  readonly executable: boolean
+}
+
+export interface ClaudeFile extends ConfigFile {
+  readonly claudePath: string
+}
+
+export interface TaskFile extends ConfigFile {
+  readonly taskName: string
+}
+
+interface HomeSetFile extends ConfigFile {
+  readonly homePath: string
+}
+
+export interface HomeFile extends HomeSetFile {
+  readonly homeName: string
+  readonly mode: HomeSet['mode']
+}
+
 interface Config {
   readonly environments: Record.ReadonlyRecord<string, ResolvedEnvironment>
   readonly recipes: Record.ReadonlyRecord<string, Recipe>
   readonly mcpServers: Record.ReadonlyRecord<string, McpServer>
-  readonly agents: Record.ReadonlyRecord<string, Frontmatter>
+  readonly agents: Record.ReadonlyRecord<string, ClaudeFile>
   readonly settings: Record.ReadonlyRecord<string, ClaudeSettings>
-  readonly skills: Record.ReadonlyRecord<string, Frontmatter>
-  readonly tasks: readonly string[]
-  readonly homeSets: Record.ReadonlyRecord<string, readonly string[]>
+  readonly skills: Record.ReadonlyRecord<string, readonly ClaudeFile[]>
+  readonly tasks: Record.ReadonlyRecord<string, ConfigFile>
+  readonly homeSets: Record.ReadonlyRecord<string, readonly HomeSetFile[]>
   readonly claudeMd: Record.ReadonlyRecord<string, string>
 }
 
@@ -43,6 +65,7 @@ type EnvironmentResolution = Effect.Effect<
   ConfigReferenceMissing | EnvironmentExtendsCycle
 >
 
+const EXECUTABLE_MODE_BITS = 0o111
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
@@ -471,7 +494,7 @@ const extractFrontmatter = (filePath: string, text: string) =>
     }),
   )
 
-export const listDirectory = Effect.fn('listDirectory')(function* (
+const listDirectory = Effect.fn('listDirectory')(function* (
   configDirectory: string,
   directoryName: string,
   entryType: FileSystem.File.Type,
@@ -506,7 +529,7 @@ const listConfigEntries = Effect.fn('listConfigEntries')(function* (
   )
 })
 
-const readConfigFile = Effect.fn('readConfigFile')(function* (
+const readConfigText = Effect.fn('readConfigText')(function* (
   configDirectory: string,
   filePath: string,
 ) {
@@ -514,6 +537,38 @@ const readConfigFile = Effect.fn('readConfigFile')(function* (
   const path = yield* Path.Path
 
   return yield* fileSystem.readFileString(path.join(configDirectory, filePath))
+})
+
+const readConfigFile = Effect.fn('readConfigFile')(function* (
+  configDirectory: string,
+  filePath: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const absoluteFilePath = path.join(configDirectory, filePath)
+  const fileInfo = yield* fileSystem.stat(absoluteFilePath)
+  const configFile: ConfigFile = {
+    content: yield* fileSystem.readFile(absoluteFilePath),
+    executable: (fileInfo.mode & EXECUTABLE_MODE_BITS) !== 0,
+  }
+
+  return configFile
+})
+
+const readConfigFilesIn = Effect.fn('readConfigFilesIn')(function* (
+  configDirectory: string,
+  directory: string,
+) {
+  const relativePaths = yield* listDirectory(configDirectory, directory, 'File', {
+    recursive: true,
+  })
+
+  return yield* Effect.forEach(relativePaths, (relativePath) =>
+    Effect.map(
+      readConfigFile(configDirectory, `${directory}/${relativePath}`),
+      (configFile) => [relativePath, configFile] as const,
+    ),
+  )
 })
 
 export const listConfigNames = Effect.fn('listConfigNames')(function* (configDirectory: string) {
@@ -567,25 +622,30 @@ const loadDecoded =
   (name: string) => {
     const filePath = configFilePathOf(configKind, name)
 
-    return readConfigFile(configDirectory, filePath).pipe(
+    return readConfigText(configDirectory, filePath).pipe(
       Effect.flatMap((text) =>
         decodeConfigText(parser, schema, STRICT_PARSE_OPTIONS)(filePath, text),
       ),
     )
   }
 
-const loadFrontmatter = Effect.fn('loadFrontmatter')(function* (
-  configDirectory: string,
-  filePath: string,
-) {
-  const text = yield* readConfigFile(configDirectory, filePath)
+const loadAgent = Effect.fn('loadAgent')(function* (configDirectory: string, agentName: string) {
+  const filePath = configFilePathOf('agent', agentName)
+  const agentFile = yield* readConfigFile(configDirectory, filePath)
 
-  return yield* extractFrontmatter(filePath, text)
+  yield* extractFrontmatter(filePath, new TextDecoder().decode(agentFile.content))
+
+  const claudeFile: ClaudeFile = { claudePath: `agents/${agentName}.md`, ...agentFile }
+
+  return claudeFile
 })
 
 const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, skillName: string) {
   const filePath = configFilePathOf('skill', skillName)
-  const frontmatter = yield* loadFrontmatter(configDirectory, filePath)
+  const frontmatter = yield* extractFrontmatter(
+    filePath,
+    yield* readConfigText(configDirectory, filePath),
+  )
 
   if (frontmatter.name !== skillName) {
     return yield* new ConfigNameMismatch({
@@ -595,7 +655,15 @@ const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, ski
     })
   }
 
-  return frontmatter
+  const skillFiles = yield* readConfigFilesIn(
+    configDirectory,
+    configEntryPathOf('skill', skillName),
+  )
+
+  return Arr.map(skillFiles, ([skillPath, skillFile]): ClaudeFile => ({
+    claudePath: `skills/${skillName}/${skillPath}`,
+    ...skillFile,
+  }))
 })
 
 const isPieOwnedHomePath = (homePath: string) =>
@@ -606,15 +674,24 @@ const isPieOwnedHomePath = (homePath: string) =>
 
 const loadHomeSet = Effect.fn('loadHomeSet')(function* (configDirectory: string, homeName: string) {
   const homeSetDirectory = configEntryPathOf('home', homeName)
-  const homePaths = yield* listDirectory(configDirectory, homeSetDirectory, 'File', {
-    recursive: true,
-  })
+  const homeSetFiles = yield* readConfigFilesIn(configDirectory, homeSetDirectory)
 
-  return yield* Option.match(Arr.findFirst(homePaths, isPieOwnedHomePath), {
-    onNone: () => Effect.succeed(homePaths),
-    onSome: (homePath) =>
-      Effect.fail(new HomePathPieOwned({ filePath: `${homeSetDirectory}/${homePath}`, homePath })),
-  })
+  return yield* Option.match(
+    Arr.findFirst(homeSetFiles, ([homePath]) => isPieOwnedHomePath(homePath)),
+    {
+      onNone: () =>
+        Effect.succeed(
+          Arr.map(homeSetFiles, ([homePath, homeSetFile]): HomeSetFile => ({
+            homePath,
+            ...homeSetFile,
+          })),
+        ),
+      onSome: ([homePath]) =>
+        Effect.fail(
+          new HomePathPieOwned({ filePath: `${homeSetDirectory}/${homePath}`, homePath }),
+        ),
+    },
+  )
 })
 
 const lookUpReference =
@@ -631,17 +708,13 @@ const lookUpReference =
     })
 
 const checkEnvironment = (
-  taskNames: readonly string[],
+  taskFiles: Record.ReadonlyRecord<string, ConfigFile>,
   environmentName: string,
   environment: Environment,
 ) =>
   Effect.forEach(
     Option.getOrElse(Option.fromUndefinedOr(environment.tasks), Arr.empty),
-    lookUpReference(
-      configFilePathOf('environment', environmentName),
-      'task',
-      Record.fromIterableWith(taskNames, (taskName) => [taskName, taskName]),
-    ),
+    lookUpReference(configFilePathOf('environment', environmentName), 'task', taskFiles),
     { discard: true },
   )
 
@@ -713,9 +786,20 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     config.environments,
   )(recipe.environment)
 
-  yield* Effect.forEach(recipe.claude.agents, lookUpReference(filePath, 'agent', config.agents), {
-    discard: true,
-  })
+  const tasks = yield* Effect.forEach(environment.tasks, (taskName) =>
+    Effect.map(
+      lookUpReference(
+        configFilePathOf('environment', recipe.environment),
+        'task',
+        config.tasks,
+      )(taskName),
+      (taskFile): TaskFile => ({ taskName, ...taskFile }),
+    ),
+  )
+  const agentFiles = yield* Effect.forEach(
+    recipe.claude.agents,
+    lookUpReference(filePath, 'agent', config.agents),
+  )
 
   const claudeSettings = yield* Option.match(Option.fromUndefinedOr(recipe.claude.settings), {
     onNone: () => Effect.succeed<ClaudeSettings>({}),
@@ -727,9 +811,10 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     lookUpReference(filePath, 'claude_md', config.claudeMd),
   )
 
-  yield* Effect.forEach(recipe.skills, lookUpReference(filePath, 'skill', config.skills), {
-    discard: true,
-  })
+  const skillFiles = yield* Effect.forEach(
+    recipe.skills,
+    lookUpReference(filePath, 'skill', config.skills),
+  )
 
   const mcpServers = yield* Effect.all(
     Record.fromIterableWith(recipe.mcp, (mcpName) => [
@@ -742,11 +827,10 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     yield* Effect.forEach(recipe.home, (homeSet) =>
       Effect.map(
         lookUpReference(filePath, 'home', config.homeSets)(homeSet.name),
-        Arr.map((homePath) => ({
+        Arr.map((homeSetFile): HomeFile => ({
           homeName: homeSet.name,
           mode: homeSet.mode,
-          sourcePath: `${configEntryPathOf('home', homeSet.name)}/${homePath}`,
-          homePath,
+          ...homeSetFile,
         })),
       ),
     ),
@@ -794,11 +878,18 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
   )
 
   return {
-    ...recipe,
+    label: recipe.label,
+    tags: recipe.tags,
     environment,
+    tasks,
+    repositories: recipe.repositories,
     home: homeFiles,
     mcp: mcpServers,
-    claude: { agents: recipe.claude.agents, settings: claudeSettings, claude_md: claudeMdTexts },
+    claude: {
+      files: [...agentFiles, ...Arr.flatten(skillFiles)],
+      settings: claudeSettings,
+      claude_md: claudeMdTexts,
+    },
   }
 })
 
@@ -806,6 +897,9 @@ export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
 export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
+  const taskFiles = yield* loadEach(configNames.task, (taskName) =>
+    readConfigFile(configDirectory, configFilePathOf('task', taskName)),
+  )
   const environments = yield* loadEach(
     configNames.environment,
     loadDecoded(configDirectory, 'environment', Bun.TOML, Environment),
@@ -813,8 +907,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
 
   yield* Effect.forEach(
     Record.toEntries(environments),
-    ([environmentName, environment]) =>
-      checkEnvironment(configNames.task, environmentName, environment),
+    ([environmentName, environment]) => checkEnvironment(taskFiles, environmentName, environment),
     { discard: true },
   )
 
@@ -833,7 +926,7 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
       loadDecoded(configDirectory, 'mcp', Bun.TOML, McpServerFile),
     ),
     agents: yield* loadEach(configNames.agent, (agentName) =>
-      loadFrontmatter(configDirectory, configFilePathOf('agent', agentName)),
+      loadAgent(configDirectory, agentName),
     ),
     settings: yield* loadEach(
       configNames.settings,
@@ -842,12 +935,12 @@ export const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: st
     skills: yield* loadEach(configNames.skill, (skillName) =>
       loadSkill(configDirectory, skillName),
     ),
-    tasks: configNames.task,
+    tasks: taskFiles,
     homeSets: yield* loadEach(configNames.home, (homeName) =>
       loadHomeSet(configDirectory, homeName),
     ),
     claudeMd: yield* loadEach(configNames.claude_md, (claudeMdName) =>
-      readConfigFile(configDirectory, configFilePathOf('claude_md', claudeMdName)),
+      readConfigText(configDirectory, configFilePathOf('claude_md', claudeMdName)),
     ),
   }
 

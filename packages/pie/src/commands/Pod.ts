@@ -21,13 +21,7 @@ import {
   syncConfigCheckout,
 } from '../Git.ts'
 import { installTools, runTasks } from '../Mise.ts'
-import {
-  applyHomeFiles,
-  failOnForeignHomeFiles,
-  homeFilesOf,
-  readHomeManifest,
-  readPodFile,
-} from '../Pod.ts'
+import { applyHomeFiles, failOnForeignHomeFiles, readHomeManifest } from '../Pod.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
@@ -61,19 +55,15 @@ export const pod = Command.make('pod').pipe(
 
         yield* requireRecipeTags(recipeName, recipe.tags, vmTags)
 
-        const tasks = yield* Effect.forEach(recipe.environment.tasks, (taskName) =>
-          readPodFile(checkoutDirectory, configFilePathOf('task', taskName), taskName),
-        )
-        const claudeConfig = yield* claudeConfigOf(checkoutDirectory, recipe)
+        const claudeConfig = claudeConfigOf(recipe)
         const claudeState = yield* readClaudeState()
-        const homeFiles = yield* homeFilesOf(checkoutDirectory, recipe)
         const previousHomeManifest = yield* readHomeManifest()
 
         yield* failOnForeignClaudeConfig(claudeConfig, claudeState)
-        yield* failOnForeignHomeFiles(homeFiles, previousHomeManifest)
+        yield* failOnForeignHomeFiles(recipe.home, previousHomeManifest)
         yield* installTools(recipe.environment)
-        yield* applyHomeFiles(homeFiles, previousHomeManifest)
-        yield* runTasks(tasks)
+        yield* applyHomeFiles(recipe.home, previousHomeManifest)
+        yield* runTasks(recipe.tasks)
         yield* cloneMissingRepositories(recipeName, recipe.repositories)
         yield* applyClaudeConfig(claudeConfig, claudeState)
         yield* writeClaudeInstructions(recipeName, repositoryName, recipe.claude.claude_md)

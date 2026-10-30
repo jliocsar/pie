@@ -1,5 +1,6 @@
 import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
+import * as Arr from 'effect/Array'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
@@ -55,7 +56,7 @@ model: opus
 You are...
 `
 
-const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
+const VALID_CONFIG_FILES = {
   'environments/personal.toml': ENVIRONMENT_TOML,
   'recipes/personal.toml': RECIPE_TOML,
   'mcp/fff.toml': 'command = "fff-mcp"\n',
@@ -65,13 +66,16 @@ const VALID_CONFIG_FILES: Record.ReadonlyRecord<string, string> = {
   'claude/claude_md/work.md': '## Work\n',
   'claude/claude_md/gcp.md': '## GCP\n',
   'skills/handoff/SKILL.md': '---\nname: handoff\ndescription: writes a handoff\n---\nWrite...\n',
+  'skills/handoff/scripts/greet': '#!/bin/sh\necho hi\n',
   'tasks/workspace': '#!/bin/sh\nmkdir -p ~/workspace\n',
   'tasks/work/setup-gcloud': '#!/bin/sh\n',
   'home/shell/.config/starship.toml': 'add_newline = false\n',
   'home/zsh/.zshrc': "alias ll='ls -l'\n",
-}
+} satisfies Record.ReadonlyRecord<string, string>
 
 const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
+
+const decodeText = (content: Uint8Array) => new TextDecoder().decode(content)
 
 const loadConfigFrom = (configFiles: Record.ReadonlyRecord<string, string>) =>
   Effect.gen(function* () {
@@ -102,6 +106,7 @@ describe('loadConfig', () => {
     bunServicesRuntime.runPromise(
       Effect.gen(function* () {
         const config = yield* loadConfigFrom(VALID_CONFIG_FILES)
+        const recipe = yield* Effect.fromOption(Record.get(config.recipes, 'personal'))
 
         expect(config.environments['personal']?.env).toEqual({ GH_HOST: 'github.int.exe.xyz' })
         expect(config.settings).toEqual({ default: { model: 'opus' } })
@@ -109,7 +114,7 @@ describe('loadConfig', () => {
           node: { version: '24.19.0' },
           'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
         })
-        expect(config.recipes['personal']?.repositories).toEqual([
+        expect(recipe.repositories).toEqual([
           { repo: 'jliocsar/pie', dir: 'jliocsar/pie', integration: 'github' },
           { repo: 'jliocsar/nidus', dir: 'nidus', integration: 'github' },
           {
@@ -118,26 +123,50 @@ describe('loadConfig', () => {
             integration: 'hapana-gh-git',
           },
         ])
-        expect(config.recipes['personal']?.home).toEqual([
+        expect(
+          Arr.map(recipe.home, ({ content, ...homeFile }) => ({
+            ...homeFile,
+            text: decodeText(content),
+          })),
+        ).toEqual([
           {
             homeName: 'shell',
             mode: 'copy',
-            sourcePath: 'home/shell/.config/starship.toml',
             homePath: '.config/starship.toml',
+            executable: false,
+            text: VALID_CONFIG_FILES['home/shell/.config/starship.toml'],
           },
-          { homeName: 'zsh', mode: 'append', sourcePath: 'home/zsh/.zshrc', homePath: '.zshrc' },
+          {
+            homeName: 'zsh',
+            mode: 'append',
+            homePath: '.zshrc',
+            executable: false,
+            text: VALID_CONFIG_FILES['home/zsh/.zshrc'],
+          },
         ])
-        expect(config.recipes['personal']?.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
+        expect(
+          Arr.map(recipe.tasks, ({ taskName, content }) => [taskName, decodeText(content)]),
+        ).toEqual([
+          ['workspace', VALID_CONFIG_FILES['tasks/workspace']],
+          ['work/setup-gcloud', VALID_CONFIG_FILES['tasks/work/setup-gcloud']],
+        ])
+        expect(
+          Arr.map(recipe.claude.files, ({ claudePath, content }) => [
+            claudePath,
+            decodeText(content),
+          ]),
+        ).toEqual([
+          ['agents/oracle.md', AGENT_MARKDOWN],
+          ['skills/handoff/SKILL.md', VALID_CONFIG_FILES['skills/handoff/SKILL.md']],
+          ['skills/handoff/scripts/greet', VALID_CONFIG_FILES['skills/handoff/scripts/greet']],
+        ])
+        expect(recipe.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
         expect(config.mcpServers).toEqual({
           executor: { type: 'http', url: 'http://executor.int.exe.xyz/mcp' },
           fff: { type: 'stdio', command: 'fff-mcp', args: [] },
         })
-        expect(config.agents['oracle']).toEqual({
-          name: 'Oracle, my Oracle',
-          description: 'deep codebase questions, read-only',
-        })
         expect(Record.keys(config.skills)).toEqual(['handoff'])
-        expect(config.tasks).toEqual(['work/setup-gcloud', 'workspace'])
+        expect(Record.keys(config.tasks)).toEqual(['work/setup-gcloud', 'workspace'])
       }),
     ))
 
@@ -152,10 +181,9 @@ describe('loadConfig', () => {
         expect(config.recipes['personal']).toMatchObject({
           tags: [],
           repositories: [],
-          skills: [],
           mcp: {},
           home: [],
-          claude: { agents: [], settings: {}, claude_md: [] },
+          claude: { files: [], settings: {}, claude_md: [] },
         })
       }),
     ))
