@@ -25,7 +25,7 @@ There is NO `Either.ts`; the core data type is `Result`.
 `Data.TaggedEnum<{...}>` is the TYPE (each key → a `_tag` variant). `Data.taggedEnum<T>()` returns the runtime helper: one constructor per variant, plus `$is` and `$match`.
 
 ```ts
-import { Data } from "effect"
+import * as Data from "effect/Data"
 
 type HttpError = Data.TaggedEnum<{
   BadRequest: { readonly message: string }

@@ -1,6 +1,6 @@
 # LanguageModel
 
-Core lives in `effect/unstable/ai` (part of the `effect` package, not a separate package). Verified exports of `effect/unstable/ai`: `AiError, AnthropicStructuredOutput, Chat, EmbeddingModel, IdGenerator, LanguageModel, McpSchema, McpServer, Model, OpenAiStructuredOutput, Prompt, Response, ResponseIdTracker, Telemetry, Tokenizer, Tool, Toolkit`.
+Core lives in `effect/unstable/ai` (part of the `effect` package, not a separate package). Verified exports of `effect/unstable/ai`: `AiError, AnthropicStructuredOutput, Chat, Decision, DecisionModel, EmbeddingModel, IdGenerator, LanguageModel, McpProtocol, McpSchema, McpServer, Model, OpenAiStructuredOutput, Prompt, Response, ResponseIdTracker, Telemetry, Tokenizer, Tool, Toolkit`.
 
 - DO call the module-level functions `LanguageModel.generateText/generateObject/streamText`; they require `LanguageModel.LanguageModel` in context.
 - Method forms also valid: `const model = yield* LanguageModel.LanguageModel; model.generateText(...)`.
@@ -10,8 +10,9 @@ Core lives in `effect/unstable/ai` (part of the `effect` package, not a separate
 ## generateText
 
 ```ts
-import { Effect } from "effect"
-import { LanguageModel, Model } from "effect/unstable/ai"
+import * as Effect from "effect/Effect"
+import * as LanguageModel from "effect/unstable/ai/LanguageModel"
+import * as Model from "effect/unstable/ai/Model"
 
 const gen = Effect.gen(function*() {
   const model = yield* LanguageModel.LanguageModel
@@ -36,8 +37,9 @@ const gen = Effect.gen(function*() {
 - Part `type` discriminants: `"text"`, `"text-delta"`, `"reasoning"`, `"tool-call"`, `"tool-result"`, `"finish"`. Stream parts use the delta variants.
 
 ```ts
-import { Stream } from "effect"
-import { LanguageModel, type Response } from "effect/unstable/ai"
+import * as Stream from "effect/Stream"
+import * as LanguageModel from "effect/unstable/ai/LanguageModel"
+import type * as Response from "effect/unstable/ai/Response"
 
 LanguageModel.streamText({ prompt: `...` }).pipe(
   Stream.filter((part): part is Response.TextDeltaPart => part.type === "text-delta"),

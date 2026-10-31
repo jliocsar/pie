@@ -13,8 +13,8 @@ Each helper takes `{ Request, Result, execute }` and returns `(request: Req["Typ
 | `void` (`SqlSchema.void`) | `void` (discards rows) | n/a |
 
 ```ts
-import { SqlSchema } from "effect/unstable/sql"
-import { Schema } from "effect"
+import * as SqlSchema from "effect/unstable/sql/SqlSchema"
+import * as Schema from "effect/Schema"
 
 const getUser = SqlSchema.findOne({
   Request: Schema.Number,
@@ -33,7 +33,7 @@ const user = yield* getUser(1)   // Effect<{id,name}, SchemaError | NoSuchElemen
 Wraps `Effect.request` so concurrent lookups batch into one SQL op. Payload equality/hash drive batching + dedup. Constructors: `ordered`, `findById`, `grouped`, `void`.
 
 ```ts
-import { SqlResolver } from "effect/unstable/sql"
+import * as SqlResolver from "effect/unstable/sql/SqlResolver"
 
 const Select = SqlResolver.findById({
   Id: Schema.Number,
@@ -58,9 +58,11 @@ const a = yield* Effect.all([exec(1), exec(2)], { concurrency: "unbounded" })
 Models come from `effect/unstable/schema` `Model.Class`. NOT from `SqlSchema.make`.
 
 ```ts
-import { Model } from "effect/unstable/schema"
-import { SqlModel, SqlClient, SqlResolver } from "effect/unstable/sql"
-import { Schema } from "effect"
+import * as Model from "effect/unstable/schema/Model"
+import * as SqlModel from "effect/unstable/sql/SqlModel"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlResolver from "effect/unstable/sql/SqlResolver"
+import * as Schema from "effect/Schema"
 
 class User extends Model.Class<User>("User")({
   id: Schema.Int.pipe(Model.FieldExcept(["insert"])),   // db-generated, not in insert variant
@@ -95,7 +97,7 @@ Generic `Migrator.make`; drivers re-export as `PgMigrator.run/layer`, `SqliteMig
 
 ```ts
 import { SqliteMigrator } from "@effect/sql-sqlite-node"
-import { SqlClient } from "effect/unstable/sql"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 
 // run form (provide SqlClient):
 yield* SqliteMigrator.run({

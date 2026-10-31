@@ -13,8 +13,12 @@ DON'T forget GET `payload` maps to the query string while POST `payload` maps to
 ## Define API
 
 ```ts
-import { Schema } from "effect"
-import { HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import * as Schema from "effect/Schema"
+import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint"
+import * as HttpApiError from "effect/unstable/httpapi/HttpApiError"
+import * as HttpApiGroup from "effect/unstable/httpapi/HttpApiGroup"
+import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema"
+import * as OpenApi from "effect/unstable/httpapi/OpenApi"
 
 export class UsersApiGroup extends HttpApiGroup.make("users")
   .add(
@@ -52,7 +56,7 @@ export class Api extends HttpApi.make("user-api")
 ## Error status — two equivalent forms
 
 ```ts
-export class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()(
+export class UserNotFound extends Schema.TaggedError<UserNotFound>()(
   "UserNotFound", {}, { httpApiStatus: 404 }
 ) {}
 
@@ -64,8 +68,10 @@ error: UserNotFound.pipe(HttpApiSchema.status(404))
 ## Handlers — `HttpApiBuilder.group(Api, name, build)`
 
 ```ts
-import { Effect, Layer } from "effect"
-import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder"
+import * as HttpApiError from "effect/unstable/httpapi/HttpApiError"
 
 export const UsersApiHandlers = HttpApiBuilder.group(
   Api, "users",
@@ -82,7 +88,7 @@ export const UsersApiHandlers = HttpApiBuilder.group(
 ).pipe(Layer.provide([Users.layer, AuthorizationLayer]))
 ```
 
-Handler ctx object exposes decoded `payload`, `path`/`params`, `query`/`urlParams`, `headers`, `request`.
+Handler ctx object exposes decoded `payload`, `params`, `query`, `headers`, plus `request`, `endpoint`, `group`.
 
 ## Middleware — `HttpApiMiddleware.Service`
 
@@ -105,8 +111,15 @@ Security-scheme impl: `Layer.succeed(Auth)({ apiKey: (effect, { credential }) =>
 
 ```ts
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { HttpRouter, HttpServer, FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { HttpApiBuilder, HttpApiClient, HttpApiMiddleware, HttpApiScalar } from "effect/unstable/httpapi"
+import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpServer from "effect/unstable/http/HttpServer"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder"
+import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient"
+import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware"
+import * as HttpApiScalar from "effect/unstable/httpapi/HttpApiScalar"
 import { createServer } from "node:http"
 
 const ApiRoutes = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
@@ -137,5 +150,5 @@ class ApiClient extends Context.Service<ApiClient, HttpApiClient.ForApi<typeof A
   ).pipe(Layer.provide(AuthorizationClient), Layer.provide(FetchHttpClient.layer))
 }
 // usage: const client = yield* ApiClient; yield* client.users.list();
-//        yield* client.users.getById({ path: { id: 123 } })
+//        yield* client.users.getById({ params: { id: 123 } })
 ```

@@ -9,12 +9,12 @@ Forbidden patterns and v3 holdovers. Each is wrong in Effect v4; the fix follows
 - DON'T `Context.Tag` / `Context.GenericTag` → `Context.Service`. `FiberRef` → `Context.Reference`.
 - DON'T `Effect.catchAll` → `Effect.catch`; `catchAllCause` → `catchCause`; `catchAllDefect` → `catchDefect`; `catchSome` → `catchFilter` (Filter-based, not Option); `catchSomeCause` → `catchCauseFilter`. `catchSomeDefect` removed.
 - DON'T `Either` → use `Result` (no `Either.ts` in v4). `decodeEither` → `decodeResult`/`decodeExit`.
-- DON'T `Schema.TaggedError` → `Schema.TaggedErrorClass<Self>()("Tag", {...}, annotations)`.
+- DON'T `Schema.TaggedErrorClass` / `Schema.ErrorClass` (not in rc.117) → `Schema.TaggedError<Self>()("Tag", {...}, annotations)` / `Schema.Error<Self>("Id")({...})`.
 - DON'T `Schema.minLength`/`Schema.pattern`/`Schema.filter(...)` constructors → `.check(Schema.isMinLength(n))`, `.check(Schema.isPattern(re))`, etc.
 - DON'T top-level `Schema.transform` → `.pipe(Schema.decodeTo(to, { decode, encode }))`.
 - DON'T `Schema.Record({ key, value })` → positional `Schema.Record(key, value)`. `Schema.Union(a, b)` → array form `Schema.Union([a, b])`.
 - DON'T `metric.increment()` / `metric.record()` / `Effect.withMetric` → standalone `Metric.update(m, v)` / `Metric.modify(m, d)`.
-- DON'T `Schedule.intersect`/`Schedule.union` → `Schedule.both`/`Schedule.either`. No `Schedule.linear`.
+- DON'T `Schedule.intersect`/`Schedule.union` → `Schedule.max([a, b])`/`Schedule.min([a, b])` (array, not pipeable). No `Schedule.linear`, `both`, `either`, `andThen` (→ `concat`) or `take` (→ `upTo({ times })`).
 - DON'T `Effect.forEachPar`/`allPar`/`zipPar`/`zipWithPar` (and any `*Par` suffix) → pass `{ concurrency }` to the base combinator (`Effect.forEach(xs, f, { concurrency })`), or bound with `Semaphore.make(n)`.
 - DON'T `Stream.mapEffectPar` → `Stream.mapEffect(f, { concurrency })`. `Queue.takeUpTo` does not exist.
 - DON'T `Effect.fork`/`forkDaemon` → `forkChild`/`forkScoped`/`forkIn`/`forkDetach`.
@@ -32,15 +32,28 @@ Forbidden patterns and v3 holdovers. Each is wrong in Effect v4; the fix follows
 - DON'T create multiple `ManagedRuntime`s without a shared `Layer.makeMemoMapUnsafe()` → layers rebuild per runtime. Always `dispose()` on shutdown.
 - DON'T overuse `Service.use`/`useSync` → prefer `yield*`; `use` leaks deps and hides requirements.
 - DON'T reuse one service id string across unrelated services → Context slot collision.
+- DON'T `yield* FileSystem.FileSystem` / `Path.Path` / `HttpClient.HttpClient` / `ChildProcessSpawner.ChildProcessSpawner` / `Config.*` inside free functions → each leaks into every caller's requirements, and each `Config` read repeats. Wrap the outside system in a `Context.Service` whose `make` resolves them once. See `services/services.md`.
+- DON'T call the class's own `.of(...)` inside the `make` passed to `Context.Service` (TS2506, its own base expression) → return a plain object; declare the shape as the second type parameter to pin it.
+- DON'T `Effect.fail(e).pipe(Effect.when(Effect.succeed(cond)))` as a guard → `if (cond) { return yield* new SomeError(...) }`.
 - DON'T `Layer.merge` when you need a dependency satisfied → `provide` (hide) or `provideMerge` (expose).
 - DON'T leave finalizers/release effects fallible → release must be infallible (`Effect.sync` or fully handled).
+
+## House rules
+
+- DON'T import a barrel — the `effect` root, `effect/testing`, or any `effect/unstable/<pillar>` index → import the leaf module: `import * as Effect from "effect/Effect"`, `import * as HttpClient from "effect/unstable/http/HttpClient"`. Type-only imports are exempt.
+- DON'T read `_tag` (`x._tag`, `switch (x._tag)`, `const { _tag } = x`, `error.reason._tag`) → `Effect.catchTag`/`catchTags`, `Effect.catchReason`/`catchReasons`/`unwrapReason`, `Match.tag`/`Match.tagsExhaustive`, or a library guard (`Exit.isFailure`, `Cause.isTimeoutError`). Defining a tag is fine.
+- DON'T loosen a catch that refuses to typecheck (`Predicate.hasProperty(error, "_tag")`, a widening cast, catch-all then re-narrow) → the error union is missing a case; add it as a tagged error where the error is produced.
+- DON'T leave an error without a message → give the class a `message` getter: a full sentence that names the fix where possible. One reporter prints `error.message`; an error without one exits silently.
 
 ## Domain modeling anti-patterns
 
 - DON'T use `null`/`undefined` in domain types → model absence with `Option<T>` (`Schema.OptionFromNullOr` at boundaries).
 - DON'T `Option.getOrThrow` → `Option.match` / `Option.getOrElse`.
-- DON'T collapse distinct failures into one generic error → one `Schema.TaggedErrorClass` per failure reason, with context fields.
+- DON'T collapse distinct failures into one generic error → one `Schema.TaggedError` per failure reason, with context fields.
 - DON'T leave entity ids as plain `string` across boundaries → brand them (`Schema.brand`).
+- DON'T decode a union structurally and re-probe it downstream with `Schema.is(Member)` → decode straight to a tagged union (`tagDefaultOmit` + `toTaggedUnion`) and `match` on it. See `schema/boundaries.md`.
+- DON'T leave one list optional while its siblings default to `[]` → `withDecodingDefaultKey(Effect.succeed([]))` on every one; one representation of none.
+- DON'T declare a `Schema.Struct` that nothing decodes or encodes only to derive a type → write the type. A schema is a boundary contract.
 
 ## Side-effect anti-patterns
 

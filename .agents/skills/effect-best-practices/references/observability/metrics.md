@@ -20,7 +20,8 @@ CRITICAL: in v4 metric updates/reads are STANDALONE functions, NOT methods. Ther
 - `Metric.snapshot` → `Effect<ReadonlyArray<Snapshot>>` of all metrics.
 
 ```ts
-import { Effect, Metric } from "effect"
+import * as Effect from "effect/Effect"
+import * as Metric from "effect/Metric"
 
 const requestCounter = Metric.counter("http_requests_total", {
   description: "Total HTTP requests", incremental: true

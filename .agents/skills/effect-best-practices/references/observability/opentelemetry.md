@@ -26,7 +26,7 @@ shutdownTimeout?: Duration.Input  // default 3000ms
 
 ```ts
 import * as NodeSdk from "@effect/opentelemetry/NodeSdk"
-import { Effect } from "effect"
+import * as Effect from "effect/Effect"
 import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base"
 
 const TracingLive = NodeSdk.layer(Effect.sync(() => ({
@@ -64,9 +64,11 @@ Modules: `Otlp`, `OtlpExporter`, `OtlpTracer`, `OtlpLogger`, `OtlpMetrics`, `Otl
 HTTP exporters need a serializer (`OtlpSerialization.layerJson`) and an `HttpClient` (`FetchHttpClient.layer`).
 
 ```ts
-import { Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { OtlpLogger, OtlpSerialization, OtlpTracer } from "effect/unstable/observability"
+import * as Layer from "effect/Layer"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as OtlpLogger from "effect/unstable/observability/OtlpLogger"
+import * as OtlpSerialization from "effect/unstable/observability/OtlpSerialization"
+import * as OtlpTracer from "effect/unstable/observability/OtlpTracer"
 
 const OtlpTracingLayer = OtlpTracer.layer({
   url: "http://localhost:4318/v1/traces",

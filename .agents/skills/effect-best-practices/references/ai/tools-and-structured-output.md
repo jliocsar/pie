@@ -7,8 +7,10 @@
 - DO add `.annotate({ description })` to schema fields used as params.
 
 ```ts
-import { Tool, Toolkit } from "effect/unstable/ai"
-import { Effect, Schema } from "effect"
+import * as Tool from "effect/unstable/ai/Tool"
+import * as Toolkit from "effect/unstable/ai/Toolkit"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 
 const SearchProducts = Tool.make("SearchProducts", {
   description: "Search the product catalog by keyword",
@@ -75,7 +77,7 @@ Only user-defined tools that need handlers appear in `toLayer`.
 - Result is validated & decoded through the schema; `response.value` is the typed instance.
 
 ```ts
-import { Schema } from "effect"
+import * as Schema from "effect/Schema"
 
 class LaunchPlan extends Schema.Class<LaunchPlan>("LaunchPlan")({
   audience: Schema.Literals(["developers", "operators", "platform teams"]),

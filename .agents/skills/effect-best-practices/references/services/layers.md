@@ -50,8 +50,8 @@ Returns a `Layer` from an `Effect<Layer>`; pick the implementation at build time
 
 ```ts
 static readonly layer = Layer.unwrap(Effect.gen(function*() {
-  const inMem = yield* Config.boolean("MESSAGE_STORE_IN_MEMORY").pipe(Config.withDefault(false))
-  return inMem ? MessageStore.layerInMemory : MessageStore.layerRemote(yield* Config.url("MESSAGE_STORE_URL"))
+  const inMem = yield* Config.Boolean("MESSAGE_STORE_IN_MEMORY").pipe(Config.withDefault(false))
+  return inMem ? MessageStore.layerInMemory : MessageStore.layerRemote(yield* Config.URL("MESSAGE_STORE_URL"))
 }))
 ```
 
@@ -62,6 +62,30 @@ const MainLayer = Layer.mergeAll(Fixtures.layer, Reporter.layer)
   .pipe(Layer.provideMerge(NodeServices.layer))
 Command.run(cli, { version }).pipe(Effect.provide(MainLayer), NodeRuntime.runMain)
 ```
+
+Layers are provided at the edge and nowhere else: modules below it `yield*` the services they use and leave the requirement in their type, never `Effect.provide` mid-program.
+
+### A CLI provides per subcommand
+
+`Command.provide(layer)` (from `effect/unstable/cli/Command`) feeds a layer to ONE command's handler, so a subcommand builds only the services it uses: `--help` builds nothing, and a command that never touches the remote API never reads its token. Only the platform layer is provided once, at `run`.
+
+```ts
+const show = Command.make(
+  "show",
+  { profile: Argument.String("profile").pipe(Argument.withSchema(PathSegment)) },
+  ({ profile }) =>
+    Effect.gen(function*() {
+      const profiles = yield* Profiles
+      yield* Effect.log(yield* profiles.load(profile))
+    })
+).pipe(Command.provide(Profiles.layer))
+
+const cli = Command.make("app").pipe(Command.withSubcommands([show, sync]))
+
+Command.run(cli, { version }).pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
+```
+
+`Command.provide` also takes `(input) => Layer` when the layer depends on the parsed flags.
 
 ## Memoization + Layer.fresh
 

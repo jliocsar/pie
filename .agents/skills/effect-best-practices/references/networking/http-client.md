@@ -6,7 +6,7 @@
 - Combinators (pipeable): `mapRequest`, `mapRequestInput` (prepends, runs before existing middleware), `mapRequestEffect`, `filterStatus`, `filterStatusOk` (fail on non-2xx), `retryTransient({ schedule, times })`, `withRateLimiter(opts)`, `followRedirects`, `withCookiesRef`.
 - Request builders: `HttpClientRequest.post/prependUrl/setUrl/setUrlParams/acceptJson/accept/bearerToken/bodyJson` (effectful) / `bodyJsonUnsafe` (sync) / `bodyText/bodyUrlParams`; `schemaBodyJson(Schema)(req, value)` → `Effect<HttpClientRequest, HttpBody.HttpBodyError>` (encodes body via schema).
 - Response decoders: `HttpClientResponse.schemaBodyJson(schema)`, `schemaJson`, `schemaNoBody`; `HttpClientResponse.filterStatusOk(response)` → `Effect<HttpClientResponse, HttpClientError.HttpClientError>` (response-level variant of the client combinator).
-- Errors: import module `HttpClientError` from `effect/unstable/http`; members `StatusCodeError`, `TransportError`, `DecodeError`, `EncodeError`, `EmptyBodyError`, `InvalidUrlError`, and `isHttpClientError(u)`. `StatusCodeError` carries `{ request, response }` (read `response.headers`).
+- Errors: import module `HttpClientError` from `effect/unstable/http`; the failure is `HttpClientError.HttpClientError` with the variant in `.reason`; members `StatusCodeError`, `TransportError`, `DecodeError`, `EncodeError`, `EmptyBodyError`, `InvalidUrlError`, and `isHttpClientError(u)`. `StatusCodeError` carries `{ request, response }` (read `response.headers`).
 - Rate limiting: `withRateLimiter({ limiter, window, limit, key, algorithm?, tokens?, disableResponseInspection?, disableAdaptiveLearning? })` adds `RateLimiter.RateLimiterError` to the client's error channel. `limiter` is the `RateLimiter.RateLimiter` service (from `effect/unstable/persistence`); provide `RateLimiter.layer` over a store (`RateLimiter.layerStoreMemory`, or Redis). `key` is a string or `(request) => string`. Paces requests proactively AND auto-retries HTTP `429` by inspecting `Retry-After` / rate-limit response headers (built-in — no manual `retry-after` parsing needed).
 
 DO bake base-url/headers/retry into the client once via `mapRequest` + `filterStatusOk` + `retryTransient`.
@@ -18,9 +18,11 @@ DON'T provide `FetchHttpClient.layer` at call site if the service layer already 
 DON'T forget the `RateLimiter` layer + a store when using `withRateLimiter`, and account for the added `RateLimiterError` in the error channel.
 
 ```ts
-import { Effect, Layer } from "effect"
-import { FetchHttpClient, HttpClient } from "effect/unstable/http"
-import { RateLimiter } from "effect/unstable/persistence"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as RateLimiter from "effect/unstable/persistence/RateLimiter"
 
 const paced = Effect.gen(function*() {
   const limiter = yield* RateLimiter.RateLimiter
@@ -36,8 +38,16 @@ const paced = Effect.gen(function*() {
 ```
 
 ```ts
-import { Context, Effect, flow, Layer, Schedule, Schema } from "effect"
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import { flow } from "effect/Function"
+import * as Layer from "effect/Layer"
+import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 
 class Todo extends Schema.Class<Todo>("Todo")({
   userId: Schema.Number, id: Schema.Number, title: Schema.String, completed: Schema.Boolean
@@ -72,7 +82,7 @@ export class JsonPlaceholder extends Context.Service<JsonPlaceholder, {
   })).pipe(Layer.provide(FetchHttpClient.layer))
 }
 
-export class JsonPlaceholderError extends Schema.TaggedErrorClass<JsonPlaceholderError>()(
+export class JsonPlaceholderError extends Schema.TaggedError<JsonPlaceholderError>()(
   "JsonPlaceholderError", { cause: Schema.Defect() }
 ) {}
 ```

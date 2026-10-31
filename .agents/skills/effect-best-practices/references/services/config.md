@@ -1,42 +1,42 @@
 # Config
 
-In v4 `Config.string/number/int/boolean/...` are shortcuts over `Config.schema(SchemaType, name)`. Every `Config<T>` is yieldable in `Effect.gen`.
+In v4 `Config.String/Number/Int/Boolean/...` (PascalCase, like the schemas they wrap) are shortcuts over `Config.schema(SchemaType, name)`. Every `Config<T>` is yieldable in `Effect.gen`.
 
 ## Constructors
 
-`string`, `nonEmptyString`, `number`, `finite`, `int`, `boolean`, `port`, `logLevel`, `redacted`, `url`, `date`, `schema(codec, path?)`, `all`, `succeed`, `fail`.
+`String`, `NonEmptyString`, `Number`, `Finite`, `Int`, `Boolean`, `Literal`, `Literals`, `Port`, `LogLevel`, `Duration`, `ByteSize`, `Redacted`, `URL`, `Date`, `Array`, `Record`, `schema(codec, path?)`, `all`, `succeed`, `fail`.
 
 ## Combinators
 
-`map`, `mapOrFail`, `orElse`, `withDefault`, `option`, `nested`, `unwrap`.
+`map`, `flatMap`, `mapEffect`, `orElse`, `withDefault`, `option`, `nested`, `unwrap`. There is no `mapOrFail`.
 
 `Config.unwrap(wrapped: Config.Wrap<T>): Config<T>` — builds one `Config<T>` from a value matching `Config.Wrap<T>` (either a `Config<T>` or a record of per-key `Config`s, recursively). Passthrough when input is already a `Config`. `Config.Wrap<T>` is the exported type-level helper for typing such inputs: `Config.Wrap<{ key: string }>` = `{ key: Config<string> } | Config<{ key: string }>`. Use to accept caller-supplied config as either a single `Config` or a bag of individual `Config`s.
 
 ```ts
 const makeConfig = (c: Config.Wrap<{ host: string; port: number }>) => Config.unwrap(c)
-makeConfig({ host: Config.string("HOST"), port: Config.int("PORT") }) // => Config<{ host, port }>
+makeConfig({ host: Config.String("HOST"), port: Config.Int("PORT") }) // => Config<{ host, port }>
 ```
 
 ## Reading config
 
 ```ts
 const program = Effect.gen(function*() {
-  const host = yield* Config.string("HOST")
-  const port = yield* Config.int("PORT").pipe(Config.withDefault(3000))
-  const secret = yield* Config.redacted("API_SECRET")
+  const host = yield* Config.String("HOST")
+  const port = yield* Config.Int("PORT").pipe(Config.withDefault(3000))
+  const secret = yield* Config.Redacted("API_SECRET")
 })
 ```
 
 ```ts
 // structured:
-const app = Config.all({ host: Config.string("HOST"), port: Config.int("PORT") })
+const app = Config.all({ host: Config.String("HOST"), port: Config.Int("PORT") })
 // schema-validated:
 const ServerConfig = Config.schema(Schema.Struct({ host: Schema.String, port: Schema.Int }), "server")
 ```
 
 ## Redacted secrets
 
-`Config.redacted` = `Config.schema(Schema.Redacted(Schema.String), name)` — masked in logs/errors.
+`Config.Redacted` = `Config.schema(Schema.Redacted(Schema.String), name)` — masked in logs/errors.
 
 - DO read the secret with `Redacted.value(...)` ONLY at the point of use.
 - DON'T `Redacted.value()` early or log secrets — keep redacted until the boundary.
@@ -63,6 +63,6 @@ Provider APIs: `fromEnv`, `fromUnknown(obj)`, `make`, `nested`, `orElse`, `const
 ## DO list
 
 - Validate ALL config at startup (fail fast).
-- Use `Schema`/`Config.all` for structured/grouped config; custom validation is best done with `Schema` checks via `Config.schema` (not only `mapOrFail`).
-- `withDefault` for non-critical values; `redacted` for secrets; `mapOrFail`/`Schema` checks for validation.
-- Wrap config in a service layer for DI: `Layer.effect(Cfg, Effect.gen(function*() { /* yield* Config... */ }))`.
+- Use `Schema`/`Config.all` for structured/grouped config; custom validation is best done with `Schema` checks via `Config.schema`.
+- `withDefault` for non-critical values; `Redacted` for secrets; `Schema` checks for validation — a branded schema through `Config.schema(Brand, "NAME")` hands the service a validated value.
+- Read config once, in the `make` of the service that needs it, never in the functions it calls; see `services.md`.

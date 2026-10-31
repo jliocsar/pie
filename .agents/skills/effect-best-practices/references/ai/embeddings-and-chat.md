@@ -5,9 +5,9 @@
 Core: `EmbeddingModel.EmbeddingModel` service with `embed(input: string)` → `EmbedResponse { vector }` and `embedMany(inputs: string[])` → `EmbedManyResponse { embeddings, usage }`. Also `EmbeddingModel.Dimensions` service (number).
 
 ```ts
-import { EmbeddingModel } from "effect/unstable/ai"
+import * as EmbeddingModel from "effect/unstable/ai/EmbeddingModel"
 import { OpenAiEmbeddingModel } from "@effect/ai-openai"
-import { Effect } from "effect"
+import * as Effect from "effect/Effect"
 
 const embedLayer = OpenAiEmbeddingModel.model("text-embedding-3-small", {
   dimensions: 1536
@@ -27,13 +27,15 @@ const program = Effect.gen(function*() {
 
 ## Chat — stateful sessions
 
-Constructors: `Chat.empty: Effect<Service>`, `Chat.fromPrompt(prompt: Prompt.RawInput): Effect<Service>`, `Chat.fromJson(json: string): Effect<Service>`, `Chat.fromExport(data: unknown): Effect<Service>`, `Chat.makePersisted({...})`.
+Constructors: `Chat.empty: Effect<Chat>`, `Chat.fromPrompt(prompt: Prompt.RawInput): Effect<Chat>`, `Chat.fromJson(json: string): Effect<Chat, SchemaError>`, `Chat.fromExport(data: unknown): Effect<Chat, SchemaError>`, `Chat.makePersisted({...})`.
 
 History is kept in `session.history: Ref<Prompt.Prompt>`. Each turn appends automatically.
 
 ```ts
-import { Chat, Prompt } from "effect/unstable/ai"
-import { Effect, Ref } from "effect"
+import * as Chat from "effect/unstable/ai/Chat"
+import * as Prompt from "effect/unstable/ai/Prompt"
+import * as Effect from "effect/Effect"
+import * as Ref from "effect/Ref"
 
 const session = yield* Chat.fromPrompt(
   Prompt.empty.pipe(Prompt.setSystem("You are a helpful assistant."))
@@ -75,14 +77,14 @@ while (true) {
 
 ## AiError handling
 
-`AiError` is a `Schema.ErrorClass` with `_tag: "AiError"`, `module`, `method`, and a `reason: AiErrorReason`. `error.isRetryable` and `error.retryAfter` delegate to the reason.
+`AiError` is a `Schema.Error` with `_tag: "AiError"`, `module`, `method`, and a `reason: AiErrorReason`. `error.isRetryable` and `error.retryAfter` delegate to the reason.
 
 `AiErrorReason` union (18 members): `RateLimitError, QuotaExhaustedError, AuthenticationError, ContentPolicyError, InvalidRequestError, InternalProviderError, NetworkError, InvalidOutputError, StructuredOutputError, UnsupportedSchemaError, UnknownError, ToolNotFoundError, ToolParameterValidationError, InvalidToolResultError, ToolResultEncodingError, ToolConfigurationError, ToolkitRequiredError, InvalidUserInputError`. Each carries `_tag`, `message`, `isRetryable`.
 
-- DO map `AiError` → domain error with `Schema.TaggedErrorClass` embedding `AiError.AiErrorReason` (itself a Schema).
+- DO map `AiError` → domain error with `Schema.TaggedError` embedding `AiError.AiErrorReason` (itself a Schema).
 
 ```ts
-export class AiWriterError extends Schema.TaggedErrorClass<AiWriterError>()("AiWriterError", {
+export class AiWriterError extends Schema.TaggedError<AiWriterError>()("AiWriterError", {
   reason: AiError.AiErrorReason
 }) {
   static fromAiError(error: AiError.AiError) {
@@ -103,5 +105,5 @@ Effect.catchTag(
 )
 ```
 
-- Branch on `error.reason._tag` (e.g. `"RateLimitError"`); use `error.retryAfter` / `error.isRetryable`.
+- Branch on the reason with `Effect.catchReason("AiError", "RateLimitError", …)` / `Effect.catchReasons`, or `Match.value(error.reason).pipe(Match.tagsExhaustive({…}))`; use `error.retryAfter` / `error.isRetryable`. Never read `error.reason._tag` — `_` means private.
 - Guards: `AiError.isAiError`, `AiError.isAiErrorReason`. `Effect.catchReason` is supported for reason-based handling.

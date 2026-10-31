@@ -22,7 +22,8 @@ BackgroundTask.pipe(Layer.launch, NodeRuntime.runMain)
 For embedding Effect in non-Effect frameworks (Express/Hono/Fastify) where a handler runs effects repeatedly.
 
 ```ts
-import { Layer, ManagedRuntime } from "effect"
+import * as Layer from "effect/Layer"
+import * as ManagedRuntime from "effect/ManagedRuntime"
 export const appMemoMap = Layer.makeMemoMapUnsafe()
 export const runtime = ManagedRuntime.make(AppLayer, { memoMap: appMemoMap })
 // handler: runtime.runPromise(effect) | runSync | runCallback | runFork(effect): Fiber

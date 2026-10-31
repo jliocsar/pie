@@ -13,8 +13,12 @@ DON'T use `WorkflowEngine.layerMemory` in production (in-memory, lost on restart
 DON'T call `Activity.make` with a positional `(name, fn)` — that's the mdx bug; pass an options object.
 
 ```ts
-import { Effect, Layer, Schema } from "effect"
-import { Activity, Workflow, WorkflowEngine } from "effect/unstable/workflow"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as Activity from "effect/unstable/workflow/Activity"
+import * as Workflow from "effect/unstable/workflow/Workflow"
+import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
 
 const ProcessOrder = Workflow.make("ProcessOrder", {
   payload: { orderId: Schema.String, items: Schema.Array(Schema.String) },
@@ -50,8 +54,8 @@ const reserveInventory = Activity.make({
 ```
 
 - Named, schema-backed, durable units; results persisted per attempt (keyed by name+attempt).
-- Retry: `Activity.retry(activity, schedulePolicy)` updates `Activity.CurrentAttempt` each attempt; `interruptRetryPolicy` controls retry-on-interrupt (exhaustion => die).
-- `Activity.raceAll(name, ...activities)` races multiple external operations.
+- Retry: `Activity.retry(activity, { times, while?, until? })` (`Effect.retry` options minus `schedule`) updates `Activity.CurrentAttempt` each attempt; `interruptRetryPolicy` controls retry-on-interrupt (exhaustion => die).
+- `Activity.raceAll(name, [activityA, activityB])` races multiple external operations.
 
 ## Compensation (saga) — `withCompensation`
 

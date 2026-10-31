@@ -12,7 +12,6 @@ Schedule.exponential("200 millis", factor = 2)
 Schedule.fibonacci("1 second")
 Schedule.cron(expr, tz?)
 Schedule.forever
-Schedule.elapsed
 Schedule.windowed(dur)
 Schedule.during(dur)
 Schedule.duration(dur)
@@ -21,31 +20,29 @@ Schedule.duration(dur)
 ## Combinators (v4 names)
 
 ```ts
-Schedule.both(a, b)        // continue while BOTH continue, max delay (v3 `intersect`). AND-cap.
-Schedule.either(a, b)      // continue while EITHER continues, min delay (v3 `union`). cap/fallback.
-Schedule.andThen(a, b)     // run `a` to completion then `b`
+Schedule.max([a, b])       // continue while ALL continue, max delay, outputs that delay (v3 `intersect`). AND-cap.
+Schedule.min([a, b])       // continue while ANY continues, min delay, outputs that delay (v3 `union`). cap/fallback.
+Schedule.concat(a, b)      // run `a` to completion then `b` (`concatResult` tags which phase emitted)
 Schedule.addDelay(self, f)
 Schedule.modifyDelay(self, f)
 Schedule.jittered          // 0.8–1.2× random jitter
 Schedule.while(self, ({ input, output, ...metadata }) => bool | Effect<bool>)
-Schedule.take(self, n)
 Schedule.upTo(self, { duration?, times? })   // bound by elapsed time and/or output count
 Schedule.map(self, f)
 Schedule.passthrough(self)
-Schedule.reduce(self, ...)
-Schedule.collectWhile(self, p)
-Schedule.tap(self, f) / tapInput / tapOutput
+Schedule.tap(self, f)      // f gets metadata: input, output, attempt, duration, elapsed
 Schedule.setInputType<E>()
-Schedule.delays(self)
 ```
 
-- GONE: `Schedule.intersect`, `Schedule.union`, `Schedule.linear`.
+- GONE: `Schedule.intersect`, `Schedule.union`, `Schedule.linear`, `both` / `either` (→ `max` / `min`, which take an ARRAY), `andThen` (→ `concat`), `take` (→ `upTo({ times })`), `tapInput` / `tapOutput` (→ `tap`), `elapsed`, `reduce`, `collectWhile`, `delays`.
 
 ## Production retry pattern
 
 ```ts
-const policy = Schedule.exponential("250 millis").pipe(
-  Schedule.either(Schedule.spaced("10 seconds")),   // cap delay at 10s
+const policy = Schedule.min([
+  Schedule.exponential("250 millis"),
+  Schedule.spaced("10 seconds")                     // cap delay at 10s
+]).pipe(
   Schedule.jittered,
   Schedule.setInputType<HttpError>(),
   Schedule.while(({ input }) => input.retryable)     // fail fast on non-retryable
@@ -58,14 +55,14 @@ effect.pipe(Effect.retry(policy), Effect.orDie)
 
 ```ts
 // AND-cap: exponential backoff capped at 6 attempts
-Schedule.both(Schedule.exponential("250 millis"), Schedule.recurs(6))
+Schedule.max([Schedule.exponential("250 millis"), Schedule.recurs(6)])
 
 // Inferred-input builder form of retry:
 Effect.retry(($) => $(Schedule.spaced("1 seconds")).pipe(Schedule.while(({ input }) => input.retryable)))
 ```
 
 - Integrates with `Effect.retry(eff, schedule)`, `Effect.repeat(eff, schedule)`, `Effect.schedule`.
-- Metadata via `Context.get(Schedule.CurrentMetadata)`.
+- Metadata via `yield* Schedule.CurrentMetadata` (a `Context.Reference`).
 
 ## Retry with fallback, and deadlines
 

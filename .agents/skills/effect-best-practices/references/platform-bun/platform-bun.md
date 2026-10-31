@@ -38,7 +38,8 @@ export const runMain: {
 Canonical pattern:
 
 ```ts
-import { BunRuntime, BunServices } from "@effect/platform-bun"
+import * as BunRuntime from "@effect/platform-bun/BunRuntime"
+import * as BunServices from "@effect/platform-bun/BunServices"
 import * as Effect from "effect/Effect"
 
 program.pipe(
@@ -100,13 +101,14 @@ export const serve: {
 Canonical Bun HTTP app:
 
 ```ts
-import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
+import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
+import * as BunRuntime from "@effect/platform-bun/BunRuntime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpServer from "effect/unstable/http/HttpServer"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 
-const app = HttpServerResponse.text("Hello from Bun!")
+const app = Effect.succeed(HttpServerResponse.text("Hello from Bun!"))
 
 HttpServer.serve(app).pipe(
   Layer.provide(BunHttpServer.layer({ port: 3000 })),
@@ -117,14 +119,14 @@ HttpServer.serve(app).pipe(
 
 - DO use `BunHttpServer.layer({ port })` for apps; `layerTest`/`layer({ port: 0 })` for tests; `layerConfig` for config-driven ports.
 - `Bun.serve` has ONE active `fetch` handler; each `serve` reloads it and restores the previous handler when the serve scope finalizes.
-- WebSocket upgrade via `HttpServerRequest.upgrade` (calls `server.upgrade`); fails if not upgradeable; non-normal close codes map to `Socket` errors.
+- WebSocket upgrade via the request's `upgrade` property (`request.upgrade: Effect<Socket>`; calls `server.upgrade`); fails if not upgradeable; non-normal close codes map to `Socket` errors.
 - Server stopped with `server.stop()` on scope close; preemptive graceful shutdown unless `disablePreemptiveShutdown: true`.
 - DON'T acquire long-lived servers/subscriptions/worker loops outside a scope — breaks graceful shutdown on SIGINT/SIGTERM.
 
 ## FileSystem / Path / Command usage
 
 ```ts
-import { BunFileSystem } from "@effect/platform-bun"
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem"
 import * as FileSystem from "effect/FileSystem"
 import * as Effect from "effect/Effect"
 

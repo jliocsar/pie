@@ -10,7 +10,9 @@ Spans wrap effects; errors are auto-captured on the enclosing span.
 - `Layer.withSpan("name")` — attach a span around layer construction.
 
 ```ts
-import { Context, Effect, Layer } from "effect"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 
 class Checkout extends Context.Service<Checkout, {
   processCheckout(orderId: string): Effect.Effect<void>

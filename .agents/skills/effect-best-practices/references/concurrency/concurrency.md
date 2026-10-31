@@ -1,6 +1,6 @@
 # Concurrency Control
 
-`Concurrency = number | "unbounded" | "inherit"`. Default for combinators is sequential (`concurrency` unset ≈ 1).
+`Concurrency = number | "unbounded"`. Default for combinators is sequential (`concurrency` unset ≈ 1).
 
 ## Effect.all / Effect.forEach
 
@@ -19,13 +19,9 @@ Effect.forEach([1, 2, 1, 3, 2], getUserById, { concurrency: "unbounded" })
 - DON'T leave it default (= sequential) and expect parallelism.
 - DON'T look for `*Par` variants — concurrent behavior is options-driven.
 
-## withConcurrency + "inherit"
+## No withConcurrency / "inherit"
 
-```ts
-Effect.withConcurrency(self, n | "unbounded")
-```
-
-- DO use `Effect.withConcurrency` to set an inherited limit for an effect + descendants that opt into `concurrency: "inherit"`.
+- GONE in v4: `Effect.withConcurrency` and `concurrency: "inherit"` — `Types.Concurrency` is `number | "unbounded"` and no `References` entry sets a default. DO pass `concurrency` explicitly at each call.
 
 ## Semaphore
 

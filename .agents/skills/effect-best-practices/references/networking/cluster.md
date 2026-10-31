@@ -4,7 +4,7 @@
 
 - `Entity.make(name, [rpc...])` — entity = array of `Rpc` defs.
 - `.toLayer(handlers, { maxIdleTime })` — passivation: idle entity stopped, recreated on demand.
-- Client: `Entity.client` yields a `clientFor(id)` function; address by entity id.
+- Client: the entity's `client` property (`yield* Counter.client`) yields a `clientFor(id)` function; address by entity id.
 - `ClusterSchema.Persisted` annotation persists messages (default = volatile/network-only).
 
 DO use `TestRunner.layer` + `Layer.provideMerge` in tests (so tests can touch storage); `NodeClusterSocket.layer()` over a `SqlClient` layer in production.
@@ -13,9 +13,14 @@ DON'T assume messages persist — they're volatile unless annotated `ClusterSche
 
 ```ts
 import { NodeClusterSocket, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer, Ref, Schema } from "effect"
-import { ClusterSchema, Entity, TestRunner } from "effect/unstable/cluster"
-import { Rpc } from "effect/unstable/rpc"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Ref from "effect/Ref"
+import * as Schema from "effect/Schema"
+import * as ClusterSchema from "effect/unstable/cluster/ClusterSchema"
+import * as Entity from "effect/unstable/cluster/Entity"
+import * as TestRunner from "effect/unstable/cluster/TestRunner"
+import * as Rpc from "effect/unstable/rpc/Rpc"
 
 const Increment = Rpc.make("Increment", { payload: { amount: Schema.Number }, success: Schema.Number })
 const GetCount  = Rpc.make("GetCount", { success: Schema.Number })

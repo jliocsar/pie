@@ -78,7 +78,7 @@ export const parsePayload = Effect.fn("parsePayload")((input: string) =>
 | `Effect.runPromiseExit(effect)` | `Promise<Exit<A, E>>` | async edge, want full Exit |
 | `Effect.runSync(effect)` | `A` | SYNCHRONOUS effects only; THROWS on failure, dies if effect is async |
 | `Effect.runSyncExit(effect)` | `Exit<A, E>` | sync, want full Exit |
-| `Effect.runCallback(effect, cb)` | — | callback edge |
+| `Effect.runCallback(effect, { onExit })` | interrupt fn | callback edge |
 
 - DO use `NodeRuntime.runMain(program, { disableErrorReporting?: true })` / `BunRuntime.runMain` as the PROCESS ENTRYPOINT — installs SIGINT/SIGTERM handlers and interrupts fibers for graceful shutdown.
 - DO use `Layer.launch(layer)` when the whole app is layers (returns long-running `Effect<never>`), then `runMain`.

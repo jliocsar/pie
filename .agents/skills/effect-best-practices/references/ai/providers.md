@@ -20,24 +20,25 @@ Providers are separate packages: `@effect/ai-anthropic`, `@effect/ai-openai`, `@
 const modelLayer = yield* OpenAiLanguageModel.model("gpt-4.1").captureRequirements
 ```
 
-## Client layer via Config.redacted
+## Client layer via Config.Redacted
 
-- DO build the client with `layerConfig` + `Config.redacted`, and provide an HttpClient.
-- DON'T hardcode API keys / read `process.env` directly — always `Config.redacted`.
+- DO build the client with `layerConfig` + `Config.Redacted`, and provide an HttpClient.
+- DON'T hardcode API keys / read `process.env` directly — always `Config.Redacted`.
 - DON'T forget the client layer in the wiring: the model Layer requires the provider Client.
 
 ```ts
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
-import { Config, Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
+import * as Config from "effect/Config"
+import * as Layer from "effect/Layer"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 
 const AnthropicClientLayer = AnthropicClient.layerConfig({
-  apiKey: Config.redacted("ANTHROPIC_API_KEY")
+  apiKey: Config.Redacted("ANTHROPIC_API_KEY")
 }).pipe(Layer.provide(FetchHttpClient.layer))
 
 const OpenAiClientLayer = OpenAiClient.layerConfig({
-  apiKey: Config.redacted("OPENAI_API_KEY")
+  apiKey: Config.Redacted("OPENAI_API_KEY")
 }).pipe(Layer.provide(FetchHttpClient.layer))
 ```
 
@@ -51,7 +52,7 @@ Signatures:
 ## ExecutionPlan — multi-provider fallback
 
 ```ts
-import { ExecutionPlan } from "effect"
+import * as ExecutionPlan from "effect/ExecutionPlan"
 
 const DraftPlan = ExecutionPlan.make(
   { provide: OpenAiLanguageModel.model("gpt-5.2"), attempts: 3 },

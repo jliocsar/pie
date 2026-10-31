@@ -9,7 +9,7 @@ import {
   HydrationBoundary,
 } from "@effect/atom-react"
 import * as ScopedAtom from "@effect/atom-react/ScopedAtom"
-import { AsyncResult } from "effect/unstable/reactivity"
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
 ```
 
 `useAtomValue(effectfulAtom)` returns an `AsyncResult`. `useAtomSuspense` returns `AsyncResult.Success`.

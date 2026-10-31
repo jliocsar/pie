@@ -10,11 +10,13 @@ DON'T pass a group name to `RpcGroup.make` and DON'T use `failure:` — both are
 ## Define + group + handlers
 
 ```ts
-import { Effect, Schema } from "effect"
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import * as Rpc from "effect/unstable/rpc/Rpc"
+import * as RpcGroup from "effect/unstable/rpc/RpcGroup"
 
 class User extends Schema.Class<User>("User")({ id: Schema.Number, name: Schema.String }) {}
-class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>()("UserNotFound", { userId: Schema.Number }) {}
+class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", { userId: Schema.Number }) {}
 
 export const GetUser = Rpc.make("GetUser", { payload: { id: Schema.Number }, success: User, error: UserNotFound })
 export const ListUsers = Rpc.make("ListUsers", { success: Schema.Array(User) })
@@ -22,7 +24,7 @@ export const ListUsers = Rpc.make("ListUsers", { success: Schema.Array(User) })
 export class UsersRpc extends RpcGroup.make(GetUser, ListUsers) {}
 
 export const UsersHandlers = UsersRpc.toLayer({
-  GetUser: ({ payload }) => Effect.gen(function*() {
+  GetUser: (payload) => Effect.gen(function*() {
     if (payload.id === 1) return new User({ id: 1, name: "Alice" })
     return yield* new UserNotFound({ userId: payload.id })
   }),
@@ -30,11 +32,11 @@ export const UsersHandlers = UsersRpc.toLayer({
 })
 ```
 
-Handler receives `({ payload }, { client, requestId, headers })`. Raise errors by returning/`yield*`ing a `Schema.TaggedErrorClass`. `Rpc.fork` opts a handler out of sequential execution (run concurrently).
+Handler receives `(payload, { client, requestId, headers, rpc })` — the decoded payload itself, not a `{ payload }` wrapper. Raise errors by returning/`yield*`ing a `Schema.TaggedError`. `Rpc.fork` opts a handler out of sequential execution (run concurrently).
 
 ## Server / client wiring
 
-- Server: `RpcServer.layer(group)` + a protocol layer. Over HTTP: `RpcServer.layerHttp({ path, ... })` or `RpcServer.layerProtocolHttp(...)`. Also `layerProtocolWebsocket`, `layerProtocolSocketServer`, `layerProtocolStdio`, `layerProtocolWorkerRunner`.
+- Server: `RpcServer.layer(group)` + a protocol layer. Over HTTP: `RpcServer.layerHttp({ group, path, ... })` or `RpcServer.layerProtocolHttp(...)`. Also `layerProtocolWebsocket`, `layerProtocolSocketServer`, `layerProtocolStdio`, `layerProtocolWorkerRunner`.
 - Client: `RpcClient.make(group, { flatten? })` + a protocol: `RpcClient.layerProtocolHttp({ url, transformClient? })`, `layerProtocolSocket(...)`, `layerProtocolWorker(...)`. HTTP = one request per call; socket/worker keep a live channel for streaming/acks/interruption.
 - Serialization layer required by protocols: `RpcSerialization.layerJson` / `layerNdjson` (sockets/workers need framing) / `layerMsgPack` / `layerJsonRpc` / `layerNdJsonRpc`.
 - Testing: `RpcTest` for in-memory handler testing.
