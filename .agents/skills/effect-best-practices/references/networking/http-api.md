@@ -147,8 +147,10 @@ class ApiClient extends Context.Service<ApiClient, HttpApiClient.ForApi<typeof A
         HttpClient.retryTransient({ schedule: Schedule.exponential(100), times: 3 })
       )
     })
-  ).pipe(Layer.provide(AuthorizationClient), Layer.provide(FetchHttpClient.layer))
+  )
 }
+
+const ApiClientLayer = ApiClient.layer.pipe(Layer.provide(Layer.mergeAll(AuthorizationClient, FetchHttpClient.layer)))
 // usage: const client = yield* ApiClient; yield* client.users.list();
 //        yield* client.users.getById({ params: { id: 123 } })
 ```

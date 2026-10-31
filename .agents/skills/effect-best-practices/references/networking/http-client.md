@@ -79,10 +79,14 @@ export class JsonPlaceholder extends Context.Service<JsonPlaceholder, {
       )
     })
     return JsonPlaceholder.of({ allTodos, getTodo })
-  })).pipe(Layer.provide(FetchHttpClient.layer))
+  }))
 }
+
+const JsonPlaceholderLayer = JsonPlaceholder.layer.pipe(Layer.provide(FetchHttpClient.layer))
 
 export class JsonPlaceholderError extends Schema.TaggedError<JsonPlaceholderError>()(
   "JsonPlaceholderError", { cause: Schema.Defect() }
 ) {}
 ```
+
+The service's `layer` leaves `HttpClient` open and the edge provides `FetchHttpClient.layer`, so a test provides `HttpClient.make(handler)` instead.

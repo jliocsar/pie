@@ -13,7 +13,7 @@
 
 ## Canonical pattern — class with `make` (preferred)
 
-Deps resolved via `yield*` inside `make`; layer wired by hand.
+Deps resolved via `yield*` inside `make`; `layer` written by hand and left open, so its requirements are exactly what `make` yields.
 
 ```ts
 export class Rollup extends Context.Service<Rollup>()(
@@ -78,9 +78,9 @@ export class Profiles extends Context.Service<
 - DO resolve each env var in exactly one `make`. A second module needing the same directory asks the service that owns it.
 - DON'T write free functions that `yield*` platform services or `Config` — each one adds to every caller's requirements and re-reads config on every call.
 
-## Testing: swap the layer
+## Testing: fake what the service depends on
 
-A service is the seam. Tests provide a different layer for it instead of faking the transport underneath.
+Because `layer` leaves its dependencies open, code that uses a service gets a fake of the service, and the service itself gets fakes of what it depends on. Neither needs the transport faked underneath.
 
 ```ts
 const ProfilesTest = Layer.succeed(Profiles, {
