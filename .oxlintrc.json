@@ -47,7 +47,7 @@
     "no-nested-ternary": "error",
     "prefer-template": "error",
     "complexity": ["error", 15],
-    // Off, not tuned. One `Schema.TaggedErrorClass` per failure reason is this
+    // Off, not tuned. One `Schema.TaggedError` per failure reason is this
     // codebase's error doctrine, so a module that can fail two ways already
     // declares two classes and a service tag makes a third. A cap of one does not
     // shrink a module, it scatters one concern across several files.
