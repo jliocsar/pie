@@ -314,7 +314,5 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
     return { readState, failOnForeign, apply, writeInstructions }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(Layer.mergeAll(Box.layer, Mise.layer)),
-  )
+  static readonly layer = Layer.effect(this, this.make)
 }

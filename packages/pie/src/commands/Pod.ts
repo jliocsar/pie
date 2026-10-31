@@ -6,22 +6,27 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
+import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import { Claude, claudeConfigOf } from '../Claude.ts'
 import { ConfigRepo, configFilePathOf, RepositoryName } from '../ConfigRepo.ts'
 import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import { Git } from '../Git.ts'
 import { Mise } from '../Mise.ts'
-import { HomeSets } from '../Pod.ts'
+import { Box, HomeSets } from '../Pod.ts'
+import { Process } from '../Process.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7
 
-const PodLayer = Layer.mergeAll(
-  ConfigRepo.layer,
-  ExeDev.layer,
-  Git.layer,
-  Mise.layer,
-  HomeSets.layer,
-  Claude.layer,
+const ExeDevLayer = ExeDev.layer.pipe(Layer.provide(FetchHttpClient.layer))
+
+const LeafServicesLayer = Layer.mergeAll(ConfigRepo.layer, Box.layer, Process.layer)
+
+const ExeDevAndMiseLayer = Layer.mergeAll(ExeDevLayer, Mise.layer).pipe(
+  Layer.provideMerge(LeafServicesLayer),
+)
+
+const PodLayer = Layer.mergeAll(Git.layer, Claude.layer, HomeSets.layer).pipe(
+  Layer.provideMerge(ExeDevAndMiseLayer),
 )
 
 export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {

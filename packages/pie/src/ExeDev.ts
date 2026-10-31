@@ -6,7 +6,6 @@ import { pipe } from 'effect/Function'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
-import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
@@ -165,5 +164,5 @@ export class ExeDev extends Context.Service<ExeDev>()('pie/ExeDev', {
     return { vmTags, vmName, integrationUrl, requireRecipeTags }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(FetchHttpClient.layer))
+  static readonly layer = Layer.effect(this, this.make)
 }

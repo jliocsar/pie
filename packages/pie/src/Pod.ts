@@ -408,5 +408,5 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
     return { readManifest, failOnForeign, apply }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(Box.layer))
+  static readonly layer = Layer.effect(this, this.make)
 }

@@ -117,7 +117,5 @@ export class Mise extends Context.Service<Mise>()('pie/Mise', {
     return { install, runTasks, exec }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(Layer.mergeAll(Process.layer, Box.layer)),
-  )
+  static readonly layer = Layer.effect(this, this.make)
 }

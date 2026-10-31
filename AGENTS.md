@@ -153,17 +153,24 @@ them can drift from where pie actually writes. The loader checks against the XDG
 than the box's own dirs, since `pie check` runs off the box. What lies inside one of those places
 belongs to the module that writes it, so below that level there's still no shared paths object.
 
-Every outside system is a service whose hand-written layer provides what the service itself
-depends on, so whoever provides it sees only the service. The entry point provides only the
-platform. Each subcommand provides the services it uses, so `check` and `sync` never build what
-only `pod up` needs, and never read HOME.
+Every outside system is a service whose hand-written layer leaves what the service depends on
+open, so a test builds the real service over fakes of exactly those. Each subcommand wires and
+provides the services it uses in one place, so `check` and `sync` never build what only `pod up`
+needs, and never read HOME. The entry point provides only the platform.
+
+Each layer used to provide its own dependencies, so whoever provided it saw only the service. That
+left the tests nothing to fake but the outside world, because a dependency provided inside a layer
+stays the one it gets even when a test provides another around it (measured). Effect's own janitor
+app keeps every layer open and wires once at the edge, which is what pie does now. The wiring is a
+few named stages with one `provide` each, since the lint rules reject a nested provide and a chain
+of them in one pipe.
 
 The config loader stays plain functions over the file system. Its service captures the platform
 once, when its layer builds, and provides it to them on each call, so wrapping it didn't re-cut
 the loader into methods.
 
-The HTTP client is exe.dev's dependency alone, so the exe.dev service's layer provides the fetch
-client itself and the entry point doesn't. The tests still answer reflection with their own
+The HTTP client is exe.dev's dependency alone, so `pod up`'s wiring provides the fetch client to
+the exe.dev layer only, and the entry point doesn't. The tests still answer reflection with their own
 `fetch`, provided around the whole run: the fetch client looks `fetch` up on the fiber making
 each request, not when its layer builds (measured).
 

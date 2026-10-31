@@ -189,7 +189,5 @@ export class Git extends Context.Service<Git>()('pie/Git', {
     return { configRepository, remember, syncConfigCheckout, cloneMissingRepositories }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(Layer.mergeAll(Process.layer, Box.layer, ExeDev.layer)),
-  )
+  static readonly layer = Layer.effect(this, this.make)
 }
