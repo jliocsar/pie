@@ -46,7 +46,6 @@ Service with traced methods and a layer that leaves its dependencies open:
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {
@@ -63,10 +62,7 @@ export class UserService extends Context.Service<UserService>()("app/UserService
 
     const findById = Effect.fn("UserService.findById")(function*(id: UserId) {
       const user = yield* repo.findById(id)
-      return yield* Option.match(user, {
-        onNone: () => new UserNotFound({ userId: id }),
-        onSome: Effect.succeed
-      })
+      return yield* Effect.fromOption(user, () => new UserNotFound({ userId: id }))
     })
 
     return { findById }
