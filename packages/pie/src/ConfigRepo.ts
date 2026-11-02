@@ -711,11 +711,10 @@ const lookUpReference =
     entries: Record.ReadonlyRecord<string, Value>,
   ) =>
   (referenceName: string): Effect.Effect<Value, ConfigReferenceMissing> =>
-    Option.match(Record.get(entries, referenceName), {
-      onNone: () =>
-        Effect.fail(new ConfigReferenceMissing({ filePath, referenceKind, referenceName })),
-      onSome: Effect.succeed,
-    })
+    Effect.fromOption(
+      Record.get(entries, referenceName),
+      () => new ConfigReferenceMissing({ filePath, referenceKind, referenceName }),
+    )
 
 const checkEnvironment = (
   taskFiles: Record.ReadonlyRecord<string, ConfigFile>,

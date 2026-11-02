@@ -3,6 +3,12 @@
   "extends": "@jliocsar/begone-slop/tsconfig",
   "compilerOptions": {
     "types": ["bun"],
-    "plugins": [{ "name": "@effect/language-service", "diagnostics": false }]
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnostics": false,
+        "brandedSchemaClasses": ["Class", "Error", "Opaque"]
+      }
+    ]
   }
 }

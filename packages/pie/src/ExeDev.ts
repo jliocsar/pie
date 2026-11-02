@@ -4,7 +4,6 @@ import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import * as Layer from 'effect/Layer'
-import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
@@ -99,10 +98,10 @@ export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonl
     onNonEmpty: ([recipeTag, ...otherRecipeTags]) =>
       Arr.isReadonlyArrayNonEmpty(otherRecipeTags)
         ? Effect.fail(new RecipeTagsConflict({ recipeTags }))
-        : Option.match(Schema.decodeOption(RecipeName)(recipeTag.slice(RECIPE_TAG_PREFIX.length)), {
-            onNone: () => Effect.fail(new RecipeTagMissing({ vmTags })),
-            onSome: Effect.succeed,
-          }),
+        : Effect.fromOption(
+            Schema.decodeOption(RecipeName)(recipeTag.slice(RECIPE_TAG_PREFIX.length)),
+            () => new RecipeTagMissing({ vmTags }),
+          ),
   })
 })
 

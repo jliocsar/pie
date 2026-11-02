@@ -1,7 +1,6 @@
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
-import * as Option from 'effect/Option'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
@@ -63,10 +62,10 @@ export const pod = Command.make('pod').pipe(
         yield* git.remember(repositoryName)
 
         const config = yield* configRepo.load(checkoutDirectory)
-        const recipe = yield* Option.match(Record.get(config.recipes, recipeName), {
-          onNone: () => Effect.fail(new RecipeNotFound({ recipeName })),
-          onSome: Effect.succeed,
-        })
+        const recipe = yield* Effect.fromOption(
+          Record.get(config.recipes, recipeName),
+          () => new RecipeNotFound({ recipeName }),
+        )
 
         yield* exeDev.requireRecipeTags(recipeName, recipe.tags, vmTags)
 

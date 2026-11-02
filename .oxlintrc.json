@@ -5,6 +5,7 @@
   // require. Extends are applied in order and rules below take precedence.
   "extends": [
     "./node_modules/@effect/tsgo/oxlint-presets/recommended.json",
+    "./node_modules/@effect/tsgo/oxlint-presets/effect-native.json",
     "./node_modules/@jliocsar/begone-slop/preset.json"
   ],
 
@@ -38,6 +39,20 @@
         ]
       }
     ],
+
+    // Their quickfixes write `Effect.asVoid` and a log-less `Effect.ignore`, which begone-slop rejects.
+    "effecttsgo/effect-map-void": "off",
+    "effecttsgo/catch-to-ignore": "off",
+    // Native string and array methods read fine; `effect/String` and `effect/Array` are for
+    // what native lacks, not a rewrite of what it has.
+    "effecttsgo/prefer-effect-string": "off",
+    "effecttsgo/prefer-effect-array": "off",
+    // `JSON.stringify` on plain data outside an Effect can't fail; inside one, `global-json-in-effect`
+    // still asks for a Schema codec.
+    "effecttsgo/global-json": "off",
+    // A schema's derived type shares the schema's name, which this rule reads as a redeclaration.
+    // The compiler still rejects a real one.
+    "no-redeclare": "off",
 
     "promise/prefer-await-to-then": "error",
 

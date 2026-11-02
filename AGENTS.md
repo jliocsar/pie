@@ -22,9 +22,16 @@ The same goes for the compiler settings: the package publishes the house tsconfi
 compiler option is a release of that package, exactly like a rule.
 :::
 
-The 81 `effecttsgo/*` Effect rules come from `@effect/tsgo`'s `recommended` preset, which
-`.oxlintrc.json` extends. They are type-aware, and the preset turns type-aware mode on — which is
-why no `--type-aware` flag appears in the scripts.
+The `effecttsgo/*` Effect rules come from two `@effect/tsgo` presets that `.oxlintrc.json` extends:
+`recommended` (96 rules) and `effect-native` (26), which bans the globals Effect replaces —
+`process.env`, the global `console`, `Date`, `fetch`, timers, `new Promise`. `recommended` carried
+those itself until tsgo moved them out, so a bump that only follows `recommended` silently drops
+them (measured going from 0.36.1 to 0.64.1). They are type-aware, and the presets turn type-aware
+mode on — which is why no `--type-aware` flag appears in the scripts.
+
+The few tsgo rules that are off say why beside themselves in `.oxlintrc.json`. Two are off because
+their quickfixes write what begone-slop rejects: a map to `undefined` becomes `Effect.asVoid`, and a
+catch returning `Effect.void` becomes a log-less `Effect.ignore`.
 
 The preset ships most of them as `warn`, so every lint invocation passes `--deny-warnings`: a
 warning that cannot fail the gate is one nobody fixes. Downgrade individual rules in
@@ -47,7 +54,9 @@ is a list of independent cases, so its length counts cases, not sprawl.
 install — do not "simplify" `prepare` down to `husky`.
 
 It also validates that `oxlint`, `oxlint-tsgolint` and `@effect/tsgo` are a supported triple, so
-bump the three together.
+bump the three together. tsgo 0.58 added `effect-tsgo oxlint` and `effect-tsgo tsc`, which run
+patched binaries without touching `node_modules`; pie still patches, since editors and plain `tsc`
+launch the stock binaries.
 
 Any reinstall reverts the patch, and `prepare` then refuses to redo it because its backups still
 exist — `Unknown plugin: 'effecttsgo'` is what that looks like. Run `bunx effect-tsgo unpatch
@@ -55,13 +64,16 @@ exist — `Unknown plugin: 'effecttsgo'` is what that looks like. Run `bunx effe
 :::
 
 :::warning
-`typescript` AND `oxlint` are pinned EXACTLY (no `^`). `@effect/tsgo` ships prebuilt artifacts for
-specific builds of each and fails with `ReplacementUnavailableError: Missing packaged artifact`
-against any other one. Bump them with `@effect/tsgo`, or not at all.
+`typescript`, `oxlint`, `oxlint-tsgolint` AND `@effect/tsgo` itself are pinned EXACTLY (no `^`).
+`@effect/tsgo` ships prebuilt artifacts for specific builds of the other three and fails with
+`ReplacementUnavailableError: Missing packaged artifact` against any other one. Bump them with
+`@effect/tsgo`, or not at all; its README lists the versions each release supports.
 
-The caret is the trap, not the version: `@effect/tsgo@0.36.1` carries oxlint artifacts for `1.76.0`
-and `1.77.0` only, so `^1.77.0` resolves to `1.78.0` on any fresh install and the patch dies
-(measured). A committed lockfile hides this until someone clones without one.
+The caret is the trap, not the version: `@effect/tsgo@0.36.1` carried oxlint artifacts for `1.76.0`
+and `1.77.0` only, so `^1.77.0` resolved to `1.78.0` on a fresh install and the patch died
+(measured). A caret on `@effect/tsgo` is the same trap from the other side: a release that drops the
+pinned oxlint build is one install away. A committed lockfile hides both until someone clones
+without one.
 :::
 
 Effect diagnostics are reported by oxlint only: the shared base configures the language-service
