@@ -33,6 +33,14 @@ The few tsgo rules that are off say why beside themselves in `.oxlintrc.json`. T
 their quickfixes write what begone-slop rejects: a map to `undefined` becomes `Effect.asVoid`, and a
 catch returning `Effect.void` becomes a log-less `Effect.ignore`.
 
+oxlint's `promise` rules decide whether `x.catch(…)` is a Promise call by looking at the receiver,
+and they treat a namespace import as one that might be a Promise. So `Effect.catch` and
+`Stream.catch` count as Promise chains (measured on oxlint 1.90.0). `prefer-await-to-then` reports
+each one that isn't under a `yield` or an `await`, which is why it's off. `valid-params` is a
+correctness rule and stays on, but it rejects the data-first `Effect.catch(self, handler)` as a
+`Promise.catch()` with two arguments, so use the pipe form. Never rewrite a catch into something
+else just to get past either rule.
+
 The preset ships most of them as `warn`, so every lint invocation passes `--deny-warnings`: a
 warning that cannot fail the gate is one nobody fixes. Downgrade individual rules in
 `.oxlintrc.json` rather than dropping the flag.
