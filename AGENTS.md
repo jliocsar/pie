@@ -373,7 +373,9 @@ those already, and another recipe's tag would give it two recipes.
 
 `pod up <org>/<repo>` remembers the repo, so later runs need no argument. The checkout lives in the
 user's cache directory. Each run fetches it and hard-resets it to the remote's HEAD, since it's a
-cache nobody edits, and a reset can't get stuck on a conflict. Git runs with terminal prompts off
+cache nobody edits, and a reset can't get stuck on a conflict. It fetches `HEAD` by name and resets
+to what came back, because `origin/HEAD` is set at clone and doesn't follow a renamed default branch
+(measured against plain git, not through an integration). Git runs with terminal prompts off
 and stdin closed, so a missing integration fails instead of waiting for a password.
 
 Every clone goes through an exe.dev integration host, `https://<integration>.int.exe.xyz`. The

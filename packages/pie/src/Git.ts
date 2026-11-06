@@ -134,10 +134,10 @@ export class Git extends Context.Service<Git>()('pie/Git', {
       }
 
       if (yield* fileSystem.exists(path.join(checkoutDirectory, '.git'))) {
-        yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin']).pipe(
+        yield* runGit(['-C', checkoutDirectory, 'fetch', '--quiet', 'origin', 'HEAD']).pipe(
           failAsUnreachable(route),
         )
-        yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
+        yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'FETCH_HEAD'])
       } else {
         yield* cloneThrough(route, checkoutDirectory)
       }

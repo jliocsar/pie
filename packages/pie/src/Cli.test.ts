@@ -536,6 +536,27 @@ describe('pie pod up', () => {
       ),
     ))
 
+  test("the config checkout follows the remote's renamed default branch", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, output, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('pod'))
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* runGit(['-C', sourceDirectory, 'branch', '-m', 'renamed-default'])
+          yield* commitToConfigSource(sourceDirectory, { 'tasks/later': '#!/bin/sh\n' }, [])
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
+
+          expect(Arr.last(output.stdout)).toEqual(
+            Option.some(`Applied recipe personal at config commit ${headCommit.slice(0, 7)}.`),
+          )
+        }),
+      ),
+    ))
+
   test("fails before changing anything when a skill, an MCP or a home file of the same name isn't pie's", () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>
