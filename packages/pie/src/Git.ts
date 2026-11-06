@@ -9,9 +9,10 @@ import * as Str from 'effect/String'
 import { type Repository, RepositoryName } from './ConfigRepo.ts'
 import {
   GITHUB_INTEGRATION,
+  type IntegrationName,
   POD_TAG,
-  RECIPE_TAG_PREFIX,
   type RecipeName,
+  recipeTagOf,
   repositoryUrlOf,
 } from './ExeDev.ts'
 import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Box.ts'
@@ -19,7 +20,7 @@ import { Process } from './Process.ts'
 
 interface GitRoute {
   readonly repositoryName: string
-  readonly integrationName: string
+  readonly integrationName: IntegrationName
   readonly integrationTag: string
 }
 
@@ -84,6 +85,14 @@ export class Git extends Context.Service<Git>()('pie/Git', {
         ),
       )
 
+    const cloneThrough = (route: GitRoute, checkoutDirectory: string) =>
+      runGit([
+        'clone',
+        '--quiet',
+        repositoryUrlOf(route.integrationName, route.repositoryName),
+        checkoutDirectory,
+      ]).pipe(failAsUnreachable(route))
+
     const configRepository = Effect.fn('Git.configRepository')(function* (
       configRepositoryArgument: Option.Option<RepositoryName>,
     ) {
@@ -137,15 +146,12 @@ export class Git extends Context.Service<Git>()('pie/Git', {
         )
         yield* runGit(['-C', checkoutDirectory, 'reset', '--hard', '--quiet', 'origin/HEAD'])
       } else {
-        yield* runGit([
-          'clone',
-          '--quiet',
-          repositoryUrlOf(GITHUB_INTEGRATION, repositoryName),
-          checkoutDirectory,
-        ]).pipe(failAsUnreachable(route))
+        yield* cloneThrough(route, checkoutDirectory)
       }
 
       const commit = Str.trim(yield* runGit(['-C', checkoutDirectory, 'rev-parse', 'HEAD']))
+
+      yield* remember(repositoryName)
 
       return { checkoutDirectory, commit }
     })
@@ -160,17 +166,13 @@ export class Git extends Context.Service<Git>()('pie/Git', {
         return
       }
 
-      yield* runGit([
-        'clone',
-        '--quiet',
-        repositoryUrlOf(repository.integration, repository.repo),
-        checkoutPath,
-      ]).pipe(
-        failAsUnreachable({
+      yield* cloneThrough(
+        {
           repositoryName: repository.repo,
           integrationName: repository.integration,
-          integrationTag: `${RECIPE_TAG_PREFIX}${recipeName}`,
-        }),
+          integrationTag: recipeTagOf(recipeName),
+        },
+        checkoutPath,
       )
     })
 
@@ -185,7 +187,7 @@ export class Git extends Context.Service<Git>()('pie/Git', {
       )
     })
 
-    return { configRepository, remember, syncConfigCheckout, cloneMissingRepositories }
+    return { configRepository, syncConfigCheckout, cloneMissingRepositories }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

@@ -48,6 +48,8 @@ export const RequiredTagName = TagName.check(
 
 export const isRecipeName = Schema.is(RecipeName)
 
+export const recipeTagOf = (recipeName: string) => `${RECIPE_TAG_PREFIX}${recipeName}`
+
 export const repositoryUrlOf = (integrationName: IntegrationName, repositoryName: string) =>
   `https://${integrationName}.int.exe.xyz/${repositoryName}.git`
 

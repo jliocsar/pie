@@ -59,9 +59,6 @@ export const pod = Command.make('pod').pipe(
         const vmTags = yield* exeDev.vmTags()
         const recipeName = yield* recipeNameOf(vmTags)
         const { checkoutDirectory, commit } = yield* git.syncConfigCheckout(repositoryName)
-
-        yield* git.remember(repositoryName)
-
         const config = yield* configRepo.load(checkoutDirectory)
         const recipe = yield* Effect.fromOption(
           Record.get(config.recipes, recipeName),

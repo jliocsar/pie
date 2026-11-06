@@ -16,7 +16,7 @@ import {
   GITHUB_INTEGRATION,
   IntegrationName,
   isRecipeName,
-  RECIPE_TAG_PREFIX,
+  recipeTagOf,
   RequiredTagName,
 } from './ExeDev.ts'
 import { APPEND_ONLY_HOME_PATHS, BOX_LAYOUT, homePathOf, PIE_OWNED_HOME_PATHS } from './Box.ts'
@@ -434,7 +434,7 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
   },
 ) {
   override get message(): string {
-    return `${configFilePathOf('recipe', this.recipeName)} can't name a recipe, since ${RECIPE_TAG_PREFIX}${this.recipeName} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
+    return `${configFilePathOf('recipe', this.recipeName)} can't name a recipe, since ${recipeTagOf(this.recipeName)} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
   }
 }
 
