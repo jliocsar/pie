@@ -84,7 +84,7 @@ const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
 const entryOf = (claudeFilePath: string) =>
   Arr.take(claudeFilePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
 
-export const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
+const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
   `## pie
 
 This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.

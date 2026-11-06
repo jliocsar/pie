@@ -5,7 +5,6 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
-import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import {
   ConfigFileInvalid,
@@ -20,6 +19,7 @@ import {
   HomePathsOverlap,
   RecipeNameNotTaggable,
 } from './ConfigRepo.ts'
+import { writeConfigFiles } from './test/TestPie.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
 tasks = ["workspace", "work/setup-gcloud"]
@@ -83,21 +83,9 @@ const decodeText = (content: Uint8Array) => new TextDecoder().decode(content)
 const loadConfigFrom = (configFiles: Record.ReadonlyRecord<string, string>) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
     const configDirectory = yield* fileSystem.makeTempDirectoryScoped()
 
-    yield* Effect.forEach(
-      Record.toEntries(configFiles),
-      ([filePath, content]) =>
-        fileSystem
-          .makeDirectory(path.dirname(path.join(configDirectory, filePath)), { recursive: true })
-          .pipe(
-            Effect.andThen(
-              fileSystem.writeFileString(path.join(configDirectory, filePath), content),
-            ),
-          ),
-      { discard: true },
-    )
+    yield* writeConfigFiles(configDirectory, configFiles, [])
 
     const configRepo = yield* ConfigRepo
 
@@ -310,6 +298,28 @@ describe('loadConfig', () => {
   )
 
   test.each([
+    {
+      description: "a recipe tag exe.dev can't hold",
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace(
+          'label = "Personal"\n',
+          'label = "Personal"\ntags = ["Work GH"]\n',
+        ),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: "a recipe tag that is another recipe's",
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace(
+          'label = "Personal"\n',
+          'label = "Personal"\ntags = ["pie-recipe-work"]\n',
+        ),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
     {
       description: 'a skill named apart from its directory',
       overrides: {

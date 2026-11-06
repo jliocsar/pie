@@ -10,9 +10,9 @@ import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
 const INTEGRATION_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
 const RECIPE_TAG_PREFIX = 'pie-recipe-'
+const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
+const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 
-export const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
-export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
 
 const VmIndex = Schema.Struct({ name: Schema.String })

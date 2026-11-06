@@ -18,21 +18,16 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import { pie } from './Cli.ts'
-import { ConfigFileInvalid, ConfigReferenceMissing } from './ConfigRepo.ts'
+import { ConfigReferenceMissing } from './ConfigRepo.ts'
 import { SchemaFileStale, SchemaLineMissing } from './EditorSchemas.ts'
-import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
-import {
-  RecipeTagMissing,
-  RecipeTagsConflict,
-  REFLECTION_INDEX_URL,
-  REFLECTION_TAGS_URL,
-  VmTagsMissing,
-} from './ExeDev.ts'
+import { ClaudeEntryNotPies, McpServerNotPies } from './Claude.ts'
+import { RecipeTagMissing, RecipeTagsConflict, VmTagsMissing } from './ExeDev.ts'
 import { RememberedConfigRepositoryInvalid, RepositoryUnreachable } from './Git.ts'
 import { HomeFileNotPies } from './HomeSets.ts'
 import {
   commitToConfigSource,
   CONFIG_REPOSITORY,
+  EXECUTABLE_FILE_MODE,
   inFreshDirectory,
   makeConfigSource,
   runGit,
@@ -45,7 +40,6 @@ interface RecordedRun {
   readonly workingDirectory: string | undefined
 }
 
-const EXECUTABLE_FILE_MODE = 0o755
 const PERMISSION_BITS = 0o777
 const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
@@ -67,8 +61,10 @@ const MISE_PROFILE_BLOCK =
 const MISE_ZSHRC_BLOCK =
   '# >>> pie: mise >>>\neval "$($HOME/.local/bin/mise activate zsh)"\n# <<< pie: mise <<<\n'
 
-const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}<!-- <<< pie <<< -->\n`
-const CLAUDE_MD_BLOCK = `<!-- >>> pie >>> -->\n${claudeInstructionsOf('personal', CONFIG_REPOSITORY)}\n${SEED_CONFIG_FILES['claude/claude_md/work.md']}\n${SEED_CONFIG_FILES['claude/claude_md/gcp.md']}\n<!-- <<< pie <<< -->\n`
+const INSTRUCTION_BULLETS_PATTERN = /(?:^- .*\n)+/mu
+const CLAUDE_INSTRUCTIONS = `## pie\n\nThis VM is a pie pod: recipe \`personal\` from \`${CONFIG_REPOSITORY}\`.\n\n<bullets>\n`
+const CLAUDE_INSTRUCTIONS_BLOCK = `<!-- >>> pie >>> -->\n${CLAUDE_INSTRUCTIONS}<!-- <<< pie <<< -->\n`
+const CLAUDE_MD_BLOCK = `<!-- >>> pie >>> -->\n${CLAUDE_INSTRUCTIONS}\n${SEED_CONFIG_FILES['claude/claude_md/work.md']}\n${SEED_CONFIG_FILES['claude/claude_md/gcp.md']}\n<!-- <<< pie <<< -->\n`
 const HOME_FILE_PATHS = ['.profile', '.zshrc', '.config/starship.toml']
 
 const WORK_RECIPE_TOML = SEED_CONFIG_FILES['recipes/personal.toml'].replace(
@@ -90,10 +86,13 @@ const capturingConsole = () => {
   return { stdout, console }
 }
 
+const withInstructionBulletsMasked = (text: string) =>
+  text.replace(INSTRUCTION_BULLETS_PATTERN, '<bullets>\n')
+
 const reflectionAnswering = (vmName: string, vmTags: readonly string[]) => {
   const reflection: Record.ReadonlyRecord<string, unknown> = {
-    [REFLECTION_INDEX_URL]: { name: vmName },
-    [REFLECTION_TAGS_URL]: { tags: vmTags },
+    'https://reflection.int.exe.xyz/': { name: vmName },
+    'https://reflection.int.exe.xyz/tags': { tags: vmTags },
   }
 
   return Object.assign(
@@ -188,15 +187,12 @@ const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
   )
 })
 
-const snapshotDirectory = Effect.fn('snapshotDirectory')(function* (directory: string) {
+const snapshotFiles = Effect.fn('snapshotFiles')(function* (
+  directory: string,
+  filePaths: readonly string[],
+) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const entryPaths = yield* fileSystem.readDirectory(directory, { recursive: true })
-  const filePaths = yield* Effect.filter(entryPaths, (entryPath) =>
-    fileSystem
-      .stat(path.join(directory, entryPath))
-      .pipe(Effect.map((fileInfo) => fileInfo.type === 'File')),
-  )
   const files = yield* Effect.forEach(filePaths, (filePath) =>
     Effect.all({
       text: fileSystem.readFileString(path.join(directory, filePath)),
@@ -219,32 +215,27 @@ const snapshotDirectory = Effect.fn('snapshotDirectory')(function* (directory: s
   return Record.fromEntries(files)
 })
 
+const snapshotDirectory = Effect.fn('snapshotDirectory')(function* (directory: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const entryPaths = yield* fileSystem.readDirectory(directory, { recursive: true })
+  const filePaths = yield* Effect.filter(entryPaths, (entryPath) =>
+    fileSystem
+      .stat(path.join(directory, entryPath))
+      .pipe(Effect.map((fileInfo) => fileInfo.type === 'File')),
+  )
+
+  return yield* snapshotFiles(directory, filePaths)
+})
+
 const snapshotHomeFiles = Effect.fn('snapshotHomeFiles')(function* (home: string) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const existingHomeFilePaths = yield* Effect.filter(HOME_FILE_PATHS, (homeFilePath) =>
     fileSystem.exists(path.join(home, homeFilePath)),
   )
-  const homeFiles = yield* Effect.forEach(existingHomeFilePaths, (homeFilePath) =>
-    Effect.all({
-      text: fileSystem.readFileString(path.join(home, homeFilePath)),
-      fileInfo: fileSystem.stat(path.join(home, homeFilePath)),
-    }).pipe(
-      Effect.map(
-        ({ text, fileInfo }) =>
-          [
-            homeFilePath,
-            {
-              text,
-              mode: fileInfo.mode & PERMISSION_BITS,
-              modifiedAt: Option.getOrNull(fileInfo.mtime),
-            },
-          ] as const,
-      ),
-    ),
-  )
 
-  return Record.fromEntries(homeFiles)
+  return yield* snapshotFiles(home, existingHomeFilePaths)
 })
 
 const writeClaudeState = Effect.fn('writeClaudeState')(function* (
@@ -344,7 +335,12 @@ describe('pie pod up', () => {
               Arr.dedupe,
             ),
           ).toEqual([home])
-          expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
+          expect(
+            Record.map(firstSnapshot, ({ text, mode }) => ({
+              text: withInstructionBulletsMasked(text),
+              mode,
+            })),
+          ).toEqual({
             'CLAUDE.md': { text: `# stock\n${CLAUDE_MD_BLOCK}`, mode: 0o644 },
             'agents/oracle.md': {
               text: SEED_CONFIG_FILES['claude/agents/oracle.md'],
@@ -414,7 +410,7 @@ describe('pie pod up', () => {
           const secondClaudeMd = yield* fileSystem.readFile(claudeMdPath)
           const secondModifiedAt = (yield* fileSystem.stat(claudeMdPath)).mtime
 
-          expect(new TextDecoder().decode(firstClaudeMd)).toBe(
+          expect(withInstructionBulletsMasked(new TextDecoder().decode(firstClaudeMd))).toBe(
             `# stock\n${CLAUDE_MD_BLOCK}# mine\n`,
           )
           expect(secondClaudeMd).toEqual(firstClaudeMd)
@@ -461,7 +457,9 @@ describe('pie pod up', () => {
             '.profile': MISE_PROFILE_BLOCK,
             '.zshrc': MISE_ZSHRC_BLOCK,
           })
-          expect(Record.map(remainingClaudeFiles, ({ text }) => text)).toEqual({
+          expect(
+            Record.map(remainingClaudeFiles, ({ text }) => withInstructionBulletsMasked(text)),
+          ).toEqual({
             'CLAUDE.md': CLAUDE_INSTRUCTIONS_BLOCK,
             'settings.json': '{\n  "theme": "dark"\n}\n',
             'skills/mine/SKILL.md': 'mine',
@@ -798,39 +796,6 @@ describe('pie sync and pie check', () => {
         ),
       },
       errorClass: ConfigReferenceMissing,
-      filePath: 'recipes/personal.toml',
-    },
-    {
-      description: "a recipe listing a claude_md file that doesn't exist",
-      overrides: {
-        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
-          '"gcp"',
-          '"gpc"',
-        ),
-      },
-      errorClass: ConfigReferenceMissing,
-      filePath: 'recipes/personal.toml',
-    },
-    {
-      description: "a recipe tag exe.dev can't hold",
-      overrides: {
-        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
-          'label = "Personal"\n',
-          'label = "Personal"\ntags = ["Work GH"]\n',
-        ),
-      },
-      errorClass: ConfigFileInvalid,
-      filePath: 'recipes/personal.toml',
-    },
-    {
-      description: "a recipe tag that is another recipe's",
-      overrides: {
-        'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
-          'label = "Personal"\n',
-          'label = "Personal"\ntags = ["pie-recipe-work"]\n',
-        ),
-      },
-      errorClass: ConfigFileInvalid,
       filePath: 'recipes/personal.toml',
     },
   ])('check refuses $description, naming the file', ({ overrides, errorClass, filePath }) =>

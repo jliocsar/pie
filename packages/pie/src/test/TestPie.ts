@@ -6,8 +6,8 @@ import * as Record from 'effect/Record'
 import { Process } from '../Process.ts'
 
 const REGULAR_FILE_MODE = 0o644
-const EXECUTABLE_FILE_MODE = 0o755
 
+export const EXECUTABLE_FILE_MODE = 0o755
 export const CONFIG_REPOSITORY = 'jliocsar/agents-machines'
 
 export const SEED_CONFIG_FILES = {
@@ -68,8 +68,8 @@ export const inFreshDirectory = <Success, Failure, Requirements>(
     return yield* useDirectory(temporaryDirectory)
   }).pipe(Effect.scoped)
 
-export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* (
-  sourceDirectory: string,
+export const writeConfigFiles = Effect.fn('writeConfigFiles')(function* (
+  configDirectory: string,
   configFiles: Record.ReadonlyRecord<string, string>,
   executableFilePaths: readonly string[],
 ) {
@@ -79,7 +79,7 @@ export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* 
   yield* Effect.forEach(
     Record.toEntries(configFiles),
     ([filePath, content]) => {
-      const absoluteFilePath = path.join(sourceDirectory, filePath)
+      const absoluteFilePath = path.join(configDirectory, filePath)
 
       return fileSystem.makeDirectory(path.dirname(absoluteFilePath), { recursive: true }).pipe(
         Effect.andThen(
@@ -93,6 +93,14 @@ export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* 
     },
     { discard: true },
   )
+})
+
+export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* (
+  sourceDirectory: string,
+  configFiles: Record.ReadonlyRecord<string, string>,
+  executableFilePaths: readonly string[],
+) {
+  yield* writeConfigFiles(sourceDirectory, configFiles, executableFilePaths)
   yield* runGit(['-C', sourceDirectory, 'add', '--all'])
   yield* runGit([
     '-C',
