@@ -74,12 +74,16 @@ const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
 
 const mcpServerJsonOf = (mcpServer: Schema.Json) => JSON.stringify(mcpServer)
 
-const claudeInstructionsOf = (recipeName: RecipeName, configRepository: RepositoryName) =>
+const claudeInstructionsOf = (
+  recipeName: RecipeName,
+  configRepository: RepositoryName,
+  pieConfigDirectory: string,
+) =>
   `## pie
 
 This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
 
-- The config repo is the source of truth. pie owns the tools, the home set files and \`~/.claude\`'s agents, settings, skills and MCPs. \`pie pod up\` overwrites local edits to them, so change the config repo instead. \`~/${homePathOf(BOX_LAYOUT.pieConfigDirectory)}/*manifest.json\` lists what pie owns.
+- The config repo is the source of truth. pie owns the tools, the home set files and \`~/.claude\`'s agents, settings, skills and MCPs. \`pie pod up\` overwrites local edits to them, so change the config repo instead. \`${pieConfigDirectory}/*manifest.json\` lists what pie owns.
 - Tools are pinned by mise. To add one, add it to the recipe's environment rather than installing it globally.
 - Repos live in \`~/${homePathOf(BOX_LAYOUT.workspace)}\`.
 - There are no secrets on this box. exe.dev integrations add auth at the network edge. If a request is denied, an integration is probably missing. Tell the user which one; don't ask for a token.
@@ -277,7 +281,10 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       claudeMdTexts: readonly string[],
     ) {
       const blockContent = pipe(
-        [claudeInstructionsOf(recipeName, configRepository), ...claudeMdTexts],
+        [
+          claudeInstructionsOf(recipeName, configRepository, box.paths.pieConfigDirectory),
+          ...claudeMdTexts,
+        ],
         Arr.map(Str.trim),
         Arr.filter(Str.isNonEmpty),
         Arr.join('\n\n'),

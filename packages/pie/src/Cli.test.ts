@@ -37,6 +37,7 @@ import {
 
 interface RunOptions {
   readonly failingRun?: string
+  readonly environment?: Record.ReadonlyRecord<string, string>
 }
 
 interface RecordedRun {
@@ -166,7 +167,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
-        ConfigProvider.fromEnv({ env: { HOME: homeOf(machineName) } }),
+        ConfigProvider.fromEnv({ env: { ...runOptions.environment, HOME: homeOf(machineName) } }),
       ),
     )
 
@@ -376,7 +377,9 @@ describe('pie pod up', () => {
             },
             env: { GH_HOST: 'github.int.exe.xyz' },
           })
-          expect(firstSnapshot['CLAUDE.md']?.text).toContain('`~/.config/pie/*manifest.json`')
+          expect(firstSnapshot['CLAUDE.md']?.text).toContain(
+            `\`${pieConfigDirectory}/*manifest.json\``,
+          )
           expect(firstSnapshot['CLAUDE.md']?.text).toContain('`~/workspace`')
           expect(Record.map(firstHomeSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
             '.profile': { text: MISE_PROFILE_BLOCK, mode: 0o644 },
@@ -532,6 +535,32 @@ describe('pie pod up', () => {
             'exec -- claude mcp remove --scope user docs',
             'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/v2"}',
           ])
+        }),
+      ),
+    ))
+
+  test("Claude's instructions name the manifests where this box's XDG_CONFIG_HOME puts them", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+          const configHome = path.join(temporaryDirectory, 'elsewhere')
+
+          yield* prepareBox(home)
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY], PERSONAL_POD_TAGS, {
+            environment: { XDG_CONFIG_HOME: configHome },
+          })
+
+          const instructions = yield* fileSystem.readFileString(
+            path.join(home, '.claude', 'CLAUDE.md'),
+          )
+          const pieConfigFileNames = yield* fileSystem.readDirectory(path.join(configHome, 'pie'))
+
+          expect(instructions).toContain(`\`${configHome}/pie/*manifest.json\``)
+          expect(pieConfigFileNames).toContain('manifest.json')
         }),
       ),
     ))

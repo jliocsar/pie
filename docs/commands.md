@@ -36,7 +36,7 @@ Steps 1 to 5 write nothing outside pie's own copy of the config repo, so a missi
 - overwrites edits made on the pod to anything pie owns, so change the config repo instead
 - leaves repositories alone once they're cloned
 
-pie records what it owns in manifests under `~/.config/pie/`. Before writing, it saves the old and new lists together, so a run that dies halfway never leaves pie's own files looking like someone else's.
+pie records what it owns in manifests under `~/.config/pie/`, or `$XDG_CONFIG_HOME/pie/` on a box setting it. Before writing, it saves the old and new lists together, so a run that dies halfway never leaves pie's own files looking like someone else's.
 
 ## pie check
 

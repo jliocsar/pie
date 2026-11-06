@@ -170,8 +170,8 @@ to it. The box resolves that table once, against HOME and the XDG dirs it reads 
 refusal of a home set landing on pie's own files derives from the same table, and so do the
 `$HOME/…` lines pie writes into shell files and the paths its Claude instructions name, so none of
 them can drift from where pie actually writes. The loader checks against the XDG defaults rather
-than the box's own dirs, since `pie check` runs off the box. Claude's instructions name those
-defaults too, so on a box setting `XDG_CONFIG_HOME` the manifests aren't where they say. What lies inside one of those places
+than the box's own dirs, since `pie check` runs off the box. Claude's instructions name the
+manifests by the box's own dir, since they're read on that box. What lies inside one of those places
 belongs to the module that writes it, so below that level there's still no shared paths object.
 
 Every outside system is a service whose hand-written layer leaves what the service depends on
