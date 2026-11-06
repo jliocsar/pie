@@ -216,6 +216,19 @@ describe('loadConfig', () => {
       }),
     ))
 
+  test("tasks = [] clears a parent's tasks", () =>
+    bunServicesRuntime.runPromise(
+      Effect.gen(function* () {
+        const config = yield* loadConfigFrom({
+          ...VALID_CONFIG_FILES,
+          'environments/bare.toml': 'extends = "personal"\nlabel = "Bare"\ntasks = []\n',
+          'recipes/bare.toml': 'label = "Bare"\nenvironment = "bare"\n',
+        })
+
+        expect(config.recipes['bare']?.environment.tasks).toEqual([])
+      }),
+    ))
+
   test('an environment that extends itself through a chain fails naming the loop', () =>
     bunServicesRuntime.runPromise(
       Effect.gen(function* () {
@@ -432,6 +445,20 @@ describe('loadConfig', () => {
       overrides: { 'skills/handoff/SKILL.md': 'Write...\n' },
       errorClass: FrontmatterMissing,
       filePath: 'skills/handoff/SKILL.md',
+    },
+    {
+      description: 'a repository dir climbing out past its first segment',
+      overrides: {
+        'recipes/personal.toml': RECIPE_TOML.replace('dir = "nidus"', 'dir = "nidus/../../.ssh"'),
+      },
+      errorClass: ConfigFileInvalid,
+      filePath: 'recipes/personal.toml',
+    },
+    {
+      description: 'a home set landing exactly on a file pie writes itself',
+      overrides: { 'home/shell/.claude.json': '{}\n' },
+      errorClass: HomePathPieOwned,
+      filePath: 'home/shell/.claude.json',
     },
     {
       description: 'a home set shipping a path pie writes itself',

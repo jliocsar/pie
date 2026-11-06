@@ -40,6 +40,11 @@ interface RunOptions {
   readonly environment?: Record.ReadonlyRecord<string, string>
 }
 
+interface SpawnedCommand {
+  readonly programName: string
+  readonly stdin: unknown
+}
+
 interface RecordedRun {
   readonly machineName: string
   readonly commandLine: string
@@ -116,6 +121,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
   const { sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
   const recordedRuns: RecordedRun[] = []
+  const spawnedCommands: SpawnedCommand[] = []
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
   const gitConfigArguments = Arr.flatMap(
     INTEGRATIONS_WITH_LOCAL_REPOSITORIES,
@@ -129,6 +135,11 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       if (!ChildProcess.isStandardCommand(command)) {
         return realSpawner.spawn(command)
       }
+
+      spawnedCommands.push({
+        programName: path.basename(command.command),
+        stdin: command.options.stdin,
+      })
 
       if (command.command === 'git') {
         return realSpawner.spawn(
@@ -171,7 +182,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       ),
     )
 
-  return { sourceDirectory, output, homeOf, runPieOn, recordedRunsOn, miseCallsOn }
+  return { sourceDirectory, output, homeOf, runPieOn, recordedRunsOn, miseCallsOn, spawnedCommands }
 })
 
 const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
@@ -535,6 +546,124 @@ describe('pie pod up', () => {
             'exec -- claude mcp remove --scope user docs',
             'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/v2"}',
           ])
+        }),
+      ),
+    ))
+
+  test('every command pie runs gets stdin closed, git included', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, runPieOn, spawnedCommands } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('pod'))
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+
+          expect(
+            pipe(
+              spawnedCommands,
+              Arr.map(({ programName }) => programName),
+              Arr.dedupe,
+            ),
+          ).toEqual(['git', 'mise'])
+          expect(
+            pipe(
+              spawnedCommands,
+              Arr.map(({ stdin }) => stdin),
+              Arr.dedupe,
+            ),
+          ).toEqual(['ignore'])
+        }),
+      ),
+    ))
+
+  test("a skill written by a run that died stays pie's on the next run", () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+          const skillPath = path.join(home, '.claude', 'skills', 'review', 'SKILL.md')
+
+          yield* prepareBox(home)
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* writeClaudeState(home, ['fff', 'docs'])
+          yield* commitToConfigSource(
+            sourceDirectory,
+            {
+              'skills/review/SKILL.md': '---\nname: review\ndescription: reviews\n---\nReview.\n',
+              'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+                'skills = ["handoff"]',
+                'skills = ["handoff", "review"]',
+              ),
+              'mcp/docs.toml': 'url = "https://docs.example/v2"\n',
+            },
+            [],
+          )
+          yield* Effect.flip(
+            runPieOn('pod', ['pod', 'up'], PERSONAL_POD_TAGS, { failingRun: 'add-json' }),
+          )
+
+          const skillWrittenByTheDeadRun = yield* fileSystem.exists(skillPath)
+
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          expect(skillWrittenByTheDeadRun).toBe(true)
+          expect(yield* fileSystem.exists(skillPath)).toBe(true)
+        }),
+      ),
+    ))
+
+  test('a home file switching from copied to appended ends up holding its block', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('pod'))
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* commitToConfigSource(
+            sourceDirectory,
+            {
+              'recipes/personal.toml': SEED_CONFIG_FILES['recipes/personal.toml'].replace(
+                'home = ["shell", ',
+                'home = [{ name = "shell", mode = "append" }, ',
+              ),
+            },
+            [],
+          )
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          expect(
+            yield* fileSystem.readFileString(path.join(homeOf('pod'), '.config', 'starship.toml')),
+          ).toBe('# >>> pie: home/shell >>>\nadd_newline = false\n# <<< pie: home/shell <<<\n')
+        }),
+      ),
+    ))
+
+  test('a failed fetch of the config checkout names the integration and its tag', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem
+          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* prepareBox(homeOf('pod'))
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* fileSystem.rename(sourceDirectory, `${sourceDirectory}-moved`)
+
+          const failure = yield* Effect.flip(runPieOn('pod', ['pod', 'up']))
+
+          expect(failure).toBeInstanceOf(RepositoryUnreachable)
+          expect(failure).toMatchObject({
+            repositoryName: CONFIG_REPOSITORY,
+            integrationName: 'github',
+            integrationTag: 'pie',
+          })
         }),
       ),
     ))
