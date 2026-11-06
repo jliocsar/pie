@@ -41,7 +41,7 @@ Every TOML file starts with a `#:schema` line pointing at its JSON schema:
 
 `pie sync` writes those schemas from pie's own, with an enum of the names on disk wherever a file names another. An editor using them, through taplo or Even Better TOML, autocompletes names and flags a typo or an unknown key as you type.
 
-Run `pie sync` after adding, renaming or deleting any file a recipe or environment can name. Sync only reads file and directory names, so it works on a config that doesn't load yet. Commit `.pie/schema` with the change that needed it.
+Run `pie sync` after adding, renaming or deleting any file a recipe or environment can name. Sync only reads file and directory names, so it works on a config that doesn't load yet. Run it after upgrading pie too. Commit `.pie/schema` with the change that needed it.
 
 ## Checking it
 
@@ -49,7 +49,7 @@ Run `pie sync` after adding, renaming or deleting any file a recipe or environme
 pie check
 ```
 
-`pie check` runs the same loader `pod up` runs, so a config that passes it is one every pod can load. On top of that, it fails when a TOML file doesn't start with its `#:schema` line, or when `.pie/schema` is out of date with the names on disk.
+`pie check` runs the same loader `pod up` runs, so a config that passes it is one every pod can load. On top of that, it fails when a TOML file doesn't start with its `#:schema` line, or when `.pie/schema` isn't what `pie sync` writes now. That follows the names on disk and pie itself, so upgrading pie can ask for a sync with no config change. A pod never runs this check, so it keeps applying recipes meanwhile.
 
 ### Before every push
 

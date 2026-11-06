@@ -45,11 +45,11 @@ These show up in `pie check` and in `pod up`.
 
 Only `pie check` reports these:
 
-| Error says                               | Fix                                                       |
-| ---------------------------------------- | --------------------------------------------------------- |
-| X doesn't start with `#:schema …`        | Make that line the file's first.                          |
-| X is out of date with the config's names | Run `pie sync`.                                           |
-| X has no recipes/*.toml                  | Run `pie check` from a config checkout, or pass its path. |
+| Error says                        | Fix                                                       |
+| --------------------------------- | --------------------------------------------------------- |
+| X doesn't start with `#:schema …` | Make that line the file's first.                          |
+| X isn't what pie sync writes now  | Run `pie sync` and commit the result.                     |
+| X has no recipes/*.toml           | Run `pie check` from a config checkout, or pass its path. |
 
 ## Applying a recipe
 

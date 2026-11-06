@@ -52,7 +52,7 @@ Validates a config repo checkout, the current directory by default. It loads the
 pie sync [dir]
 ```
 
-Rewrites `.pie/schema` from the names on disk, so editors autocomplete them. Run it after adding, renaming or deleting a config file. See [the config repo](config-repo.md#editor-schemas).
+Rewrites `.pie/schema` from the names on disk, so editors autocomplete them. Run it after adding, renaming or deleting a config file, and after upgrading pie. See [the config repo](config-repo.md#editor-schemas).
 
 ## Global flags
 

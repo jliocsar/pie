@@ -35,7 +35,7 @@ export class SchemaFileStale extends Schema.TaggedError<SchemaFileStale>()('Sche
   filePath: Schema.String,
 }) {
   override get message(): string {
-    return `${this.filePath} is out of date with the config's names. Run pie sync.`
+    return `${this.filePath} isn't what pie sync writes now, because a config name changed or pie did. Run pie sync and commit the result.`
   }
 }
 

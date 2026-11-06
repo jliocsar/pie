@@ -435,7 +435,10 @@ tag for the rest.
 also refuses a recipe whose file name can't follow `pie-recipe-` in an exe.dev tag. On top of it,
 `check` adds what only editors need: each TOML file's first line is its `#:schema` line, and
 `.pie/schema/` matches what `pie sync` would write now. Without that second part, a stale enum
-flags a real name as a typo and nothing catches it.
+flags a real name as a typo and nothing catches it. The comparison is by bytes, so an Effect bump can
+trip it with no config change: 4.1.2 added safe-integer bounds to what `Schema.Int` renders, and
+every config needed a sync (measured). `pod up` never compares them, so pods don't notice, and the
+error blames pie as well as the names.
 
 Every name that ends up in a path or a host is checked where it is decoded, never where it is used: the config repo, given or remembered, and a recipe repository are `<org>/<repo>` with no all-dots part, a repository's `dir` is relative with no empty, `.` or `..` segment, and an integration is a hostname label. Those checks are plain patterns, so the editor schemas carry them too. Recipe, repository and integration names are branded, since pie passes them side by side as strings.
 
