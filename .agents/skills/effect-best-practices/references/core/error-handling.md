@@ -68,9 +68,35 @@ Effect.catchReasons("AiError", {
 callModel.pipe(Effect.unwrapReason("AiError"), Effect.catchTags({ /* ... */ }))
 ```
 
+## Never read `_tag`
+
+A read keeps compiling when a variant is added, so the new case goes unhandled. An exhaustive match stops compiling instead, which is the whole reason for the ban. `_tag` isn't hidden: Effect itself declares it as a schema field.
+
+| Need | DO | DON'T |
+| --- | --- | --- |
+| Every variant | `Match.tagsExhaustive`, `Union.match` | `switch (value._tag)` with a `default` |
+| One variant | `Union.guards.X(value)` | `value._tag === "X"`; `Predicate.isTagged(value, "X")`, which takes `unknown`, so a typo compiles |
+| One error tag | `Effect.catchTag`, `Effect.catchReason` | catch-all, then probing the tag |
+| A deliberate fallback | `Match.tag` + `Match.orElse`: it gives up exhaustiveness just as a read does, so a new variant lands in the fallback silently | reaching for it to avoid writing the other cases |
+
+```ts
+const Shape = Schema.TaggedUnion({
+  Circle: { radius: Schema.Number },
+  Rectangle: { width: Schema.Number, height: Schema.Number }
+})
+
+if (Shape.guards.Circle(shape)) {
+  yield* Effect.log(shape.radius)
+}
+```
+
+- `Union.guards` exists on `Schema.TaggedUnion` and on `Schema.Union([...]).pipe(Schema.toTaggedUnion("_tag"))`, including a union of `Schema.TaggedError` classes.
+- A guard is `(u: unknown) => u is Member`, but its key is checked, so `Shape.guards.Circl` doesn't compile. It validates the whole value against the member's type side, not just the tag.
+- A `Data.taggedEnum`'s guard is `$is("X")`, with the tag checked too.
+
 ## Other error-channel combinators
 
-- `Effect.mapError`, `Effect.tapError`, `Effect.orDie` (makes E fatal/defect), `Effect.orElseSucceed`. There is no `Effect.orElse` in rc.117.
+- `Effect.mapError`, `Effect.tapError`, `Effect.orDie` (makes E fatal/defect), `Effect.orElseSucceed`. There is no `Effect.orElse` in 4.1.2.
 
 ## Cause flattened to reasons
 

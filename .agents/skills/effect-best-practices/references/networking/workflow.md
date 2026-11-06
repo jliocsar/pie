@@ -1,6 +1,6 @@
 # Workflow
 
-`effect/unstable/workflow`. Durable, suspendable, idempotent execution.
+`effect/workflow`. Durable, suspendable, idempotent execution.
 
 `Workflow.make(name, { payload, idempotencyKey, success?, error?, suspendedRetrySchedule?, annotations? })`.
 - `idempotencyKey: (payload) => string` (pure, stable) → deterministic `executionId` (hash of name+key).
@@ -16,9 +16,9 @@ DON'T call `Activity.make` with a positional `(name, fn)` — that's the mdx bug
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Activity from "effect/unstable/workflow/Activity"
-import * as Workflow from "effect/unstable/workflow/Workflow"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as Activity from "effect/workflow/Activity"
+import * as Workflow from "effect/workflow/Workflow"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 
 const ProcessOrder = Workflow.make("ProcessOrder", {
   payload: { orderId: Schema.String, items: Schema.Array(Schema.String) },

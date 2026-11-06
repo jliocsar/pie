@@ -13,7 +13,7 @@ Each helper takes `{ Request, Result, execute }` and returns `(request: Req["Typ
 | `void` (`SqlSchema.void`) | `void` (discards rows) | n/a |
 
 ```ts
-import * as SqlSchema from "effect/unstable/sql/SqlSchema"
+import * as SqlSchema from "effect/sql/SqlSchema"
 import * as Schema from "effect/Schema"
 
 const getUser = SqlSchema.findOne({
@@ -33,7 +33,7 @@ const user = yield* getUser(1)   // Effect<{id,name}, SchemaError | NoSuchElemen
 Wraps `Effect.request` so concurrent lookups batch into one SQL op. Payload equality/hash drive batching + dedup. Constructors: `ordered`, `findById`, `grouped`, `void`.
 
 ```ts
-import * as SqlResolver from "effect/unstable/sql/SqlResolver"
+import * as SqlResolver from "effect/sql/SqlResolver"
 
 const Select = SqlResolver.findById({
   Id: Schema.Number,
@@ -55,13 +55,13 @@ const a = yield* Effect.all([exec(1), exec(2)], { concurrency: "unbounded" })
 
 ## SqlModel — repository / resolver patterns
 
-Models come from `effect/unstable/schema` `Model.Class`. NOT from `SqlSchema.make`.
+Models come from `effect/schema` `Model.Class`. NOT from `SqlSchema.make`.
 
 ```ts
-import * as Model from "effect/unstable/schema/Model"
-import * as SqlModel from "effect/unstable/sql/SqlModel"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
-import * as SqlResolver from "effect/unstable/sql/SqlResolver"
+import * as Model from "effect/schema/Model"
+import * as SqlModel from "effect/sql/SqlModel"
+import * as SqlClient from "effect/sql/SqlClient"
+import * as SqlResolver from "effect/sql/SqlResolver"
 import * as Schema from "effect/Schema"
 
 class User extends Model.Class<User>("User")({
@@ -93,11 +93,11 @@ const alice = yield* SqlResolver.request(User.insert.make({ name: "Alice", age: 
 
 ## Migrator
 
-Generic `Migrator.make`; drivers re-export as `PgMigrator.run/layer`, `SqliteMigrator.run/layer`. Loaders: `fromFileSystem(dir)`, `fromGlob(record)`, `fromBabelGlob(record)`, `fromRecord(record)`.
+Generic `Migrator.make`; drivers re-export as `PgMigrator.run/layer`, `SqliteMigrator.run/layer`. Loaders: `Migrator.fromGlob(record)`, `fromBabelGlob(record)`, `fromRecord(record)`. `fromFileSystem(dir)` moved to `effect/sql/MigratorFileSystem` and requires `FileSystem | Path`; driver migrators still re-export it, as used below.
 
 ```ts
-import { SqliteMigrator } from "@effect/sql-sqlite-node"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqliteMigrator from "@effect/sql-sqlite-node/SqliteMigrator"
+import * as SqlClient from "effect/sql/SqlClient"
 
 // run form (provide SqlClient):
 yield* SqliteMigrator.run({
@@ -110,5 +110,5 @@ const MigratorLive = SqliteMigrator.layer({ loader: SqliteMigrator.fromRecord({ 
 ```
 
 - Migration ids are unique NUMBERS; file pattern `<id>_<name>.{js,ts,mjs,mts}`; default-export an `Effect` using the current `SqlClient`. Only ids > latest recorded run execute — editing old migrations won't re-run them.
-- Migrations run inside a transaction. On Postgres the migrations table is explicitly locked; other dialects rely on a table constraint to detect concurrent runners.
+- Migrations run inside a transaction, except on ClickHouse. On Postgres the migrations table is explicitly locked; other dialects rely on a table constraint to detect concurrent runners.
 - `MigrationError` (`Data.TaggedError`) kinds: `BadState | ImportError | Failed | Duplicates | Locked`.

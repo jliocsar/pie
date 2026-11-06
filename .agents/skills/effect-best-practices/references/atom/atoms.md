@@ -1,13 +1,13 @@
 # Atoms (core)
 
-Core `Atom` module lives in **`effect/unstable/reactivity`** — NOT a separate `@effect/atom` core package.
+Core `Atom` module lives in **`effect/reactivity`** — NOT a separate `@effect/atom` core package.
 
 ```ts
-import * as Atom from "effect/unstable/reactivity/Atom"
-import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry"
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult"
-import * as AtomRef from "effect/unstable/reactivity/AtomRef"
-import * as Hydration from "effect/unstable/reactivity/Hydration"
+import * as Atom from "effect/reactivity/Atom"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import * as AsyncResult from "effect/reactivity/AsyncResult"
+import * as AtomRef from "effect/reactivity/AtomRef"
+import * as Hydration from "effect/reactivity/Hydration"
 ```
 
 ## CRITICAL: AsyncResult vs effect/Result

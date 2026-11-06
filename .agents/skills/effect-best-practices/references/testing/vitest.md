@@ -1,6 +1,8 @@
 # vitest
 
-`@effect/vitest` re-exports everything from `vitest` (`expect`, `describe`, `assert`, `vi`, `afterAll`, ...) plus Effect-aware helpers. Top-level exports: `it`, `effect`, `live`, `layer`, `flakyTest`, `prop`, `addEqualityTesters`, `makeMethods`, `describeWrapped`.
+`@effect/vitest` 4.1.2 declares a peer of `vitest` `>=5.0.0 <6.0.0`, so it needs Vitest 5. It re-exports everything from `vitest` (`expect`, `describe`, `assert`, `vi`, `afterAll`, ...) plus Effect-aware helpers. Top-level exports: `it`, `effect`, `live`, `layer`, `flakyTest`, `prop`, `addEqualityTesters`, `makeMethods`, `describeWrapped`.
+
+Fakes work the same as under `bun:test`, and custom ones need the members added at 4.1: see `bun-test.md`.
 
 ## `it` methods
 
@@ -183,7 +185,7 @@ it.layer(FetchHttpClient.layer)("FetchHttpClient", (it) => {
 
 `it.effect.prop(name, arbitraries, ([values], ctx) => Effect, opts?)`:
 
-- `arbitraries` = array or record of `Schema.Schema` or `Arbitrary.Arbitrary` (`effect/unstable/arbitrary/Arbitrary`; there is no `FastCheck` export). Schemas auto-convert via `Arbitrary.schema`.
+- `arbitraries` = array or record of `Schema.Schema` or `Arbitrary.Arbitrary` (`effect/Arbitrary`; there is no `FastCheck` export). Schemas auto-convert via `Arbitrary.schema`.
 - `opts.arbitrary` passes `Arbitrary.CheckOptions` (`runs`, `size`, `seed`, `maxShrinks`, ... e.g. `{ arbitrary: { runs: 200 } }`).
 
 ```ts

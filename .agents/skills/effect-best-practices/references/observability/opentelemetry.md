@@ -1,8 +1,8 @@
 # OpenTelemetry
 
 Two export paths:
-- Full OTel integration → `@effect/opentelemetry` (`NodeSdk`, `WebSdk`, `Tracer`, `Metrics`, `Logger`, `Resource`). Use when wiring an existing OTel SDK / instrumentations.
-- Lightweight, no peer deps → `effect/unstable/observability` (`Otlp*`, `PrometheusMetrics`). Prefer for new projects.
+- Full OTel integration → `@effect/opentelemetry` (`NodeSdk`, `WebSdk`, `OtelTracer`, `OtelMetrics`, `OtelLogger`, `Resource`). Use when wiring an existing OTel SDK / instrumentations.
+- Lightweight, no peer deps → `effect/observability` (`Otlp*`, `PrometheusMetrics`). Prefer for new projects.
 
 ## @effect/opentelemetry — NodeSdk / WebSdk
 
@@ -38,7 +38,7 @@ const TracingLive = NodeSdk.layer(Effect.sync(() => ({
 ### Production-shaped (OTLP HTTP)
 
 ```ts
-import { NodeSdk } from "@effect/opentelemetry"
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk"
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 
@@ -50,14 +50,14 @@ const NodeSdkLayer = NodeSdk.layer(() => ({
 }))
 ```
 
-- Spans land as `Tracer.OtelSpan`; `Effect.currentSpan` resolves to it.
+- Spans land as `OtelTracer.OtelSpan`; `OtelTracer.currentOtelSpan` returns the underlying `Otel.Span`, failing with `NoSuchElementError` outside a span.
 - `NodeSdk.layerEmpty` / `layerTracerProvider` available for advanced cases.
 
 ### GOTCHA
 
 Register Node auto-instrumentations BEFORE importing modules that should be patched — many Node instrumentations hook module loading. Provide the SDK layer once, at the top of the app.
 
-## Lightweight alt — effect/unstable/observability
+## Lightweight alt — effect/observability
 
 Modules: `Otlp`, `OtlpExporter`, `OtlpTracer`, `OtlpLogger`, `OtlpMetrics`, `OtlpResource`, `OtlpSerialization`, `PrometheusMetrics`.
 
@@ -65,10 +65,10 @@ HTTP exporters need a serializer (`OtlpSerialization.layerJson`) and an `HttpCli
 
 ```ts
 import * as Layer from "effect/Layer"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import * as OtlpLogger from "effect/unstable/observability/OtlpLogger"
-import * as OtlpSerialization from "effect/unstable/observability/OtlpSerialization"
-import * as OtlpTracer from "effect/unstable/observability/OtlpTracer"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as OtlpLogger from "effect/observability/OtlpLogger"
+import * as OtlpSerialization from "effect/observability/OtlpSerialization"
+import * as OtlpTracer from "effect/observability/OtlpTracer"
 
 const OtlpTracingLayer = OtlpTracer.layer({
   url: "http://localhost:4318/v1/traces",
@@ -84,8 +84,7 @@ const OtlpLoggingLayer = OtlpLogger.layer({
 })
 
 export const ObservabilityLayer = Layer.merge(OtlpTracingLayer, OtlpLoggingLayer).pipe(
-  Layer.provide(OtlpSerialization.layerJson),
-  Layer.provide(FetchHttpClient.layer)
+  Layer.provide(Layer.merge(OtlpSerialization.layerJson, FetchHttpClient.layer))
 )
 // provide LAST at the top: Main.pipe(Layer.provide(ObservabilityLayer))
 ```
@@ -112,6 +111,6 @@ const ObservabilityLayer = Otlp.layerJson({
 ## DO / DON'T
 
 - DO provide the SDK/exporter layer once, at the top of the app (provide LAST).
-- DO prefer `effect/unstable/observability` for new projects (zero peer deps).
+- DO prefer `effect/observability` for new projects (zero peer deps).
 - DO pass a `resource` to an `Otlp*` layer so ops can override service name/version via `OTEL_*` env vars without a rebuild (`OtlpResource.fromConfig` merges them).
 - DON'T import patched modules before registering Node auto-instrumentations.

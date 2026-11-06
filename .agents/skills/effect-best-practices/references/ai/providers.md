@@ -1,6 +1,6 @@
 # Providers
 
-Providers are separate packages: `@effect/ai-anthropic`, `@effect/ai-openai`, `@effect/ai-openrouter`, `@effect/ai-openai-compat`. Also `@effect/ai-openai-compat` for OpenAI-compatible endpoints.
+Providers are separate packages: `@effect/ai-anthropic`, `@effect/ai-cloudflare`, `@effect/ai-openai`, `@effect/ai-openrouter`, `@effect/ai-typesafe`, and `@effect/ai-openai-compat` for OpenAI-compatible endpoints.
 
 ## Model is a Layer (and a capturable handle)
 
@@ -27,11 +27,13 @@ const modelLayer = yield* OpenAiLanguageModel.model("gpt-4.1").captureRequiremen
 - DON'T forget the client layer in the wiring: the model Layer requires the provider Client.
 
 ```ts
-import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
+import * as AnthropicClient from "@effect/ai-anthropic/AnthropicClient"
+import * as AnthropicLanguageModel from "@effect/ai-anthropic/AnthropicLanguageModel"
+import * as OpenAiClient from "@effect/ai-openai/OpenAiClient"
+import * as OpenAiLanguageModel from "@effect/ai-openai/OpenAiLanguageModel"
 import * as Config from "effect/Config"
 import * as Layer from "effect/Layer"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 
 const AnthropicClientLayer = AnthropicClient.layerConfig({
   apiKey: Config.Redacted("ANTHROPIC_API_KEY")
@@ -52,6 +54,10 @@ Signatures:
 ## ExecutionPlan — multi-provider fallback
 
 ```ts
+import * as AiError from "effect/ai/AiError"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
 import * as ExecutionPlan from "effect/ExecutionPlan"
 
 const DraftPlan = ExecutionPlan.make(
@@ -59,10 +65,22 @@ const DraftPlan = ExecutionPlan.make(
   { provide: AnthropicLanguageModel.model("claude-opus-4-6"), attempts: 2 }
 )
 
-const draftsModel = yield* DraftPlan.captureRequirements
+export class Drafts extends Context.Service<Drafts, {
+  readonly draft: (prompt: string) => Effect.Effect<string, AiError.AiError>
+}>()("Drafts", {
+  make: Effect.gen(function*() {
+    const plan = yield* DraftPlan.captureRequirements
+    const draft = Effect.fn("Drafts.draft")(function*(prompt: string) {
+      const response = yield* LanguageModel.generateText({ prompt }).pipe(Effect.withExecutionPlan(plan))
+      return response.text
+    })
+    return { draft }
+  })
+}) {
+  static readonly layer = Layer.effect(this)(this.make)
+}
 
-Effect.withExecutionPlan(draftsModel)
-  .pipe(Layer.provide([OpenAiClientLayer, AnthropicClientLayer]))
+const DraftsLayer = Drafts.layer.pipe(Layer.provide([OpenAiClientLayer, AnthropicClientLayer]))
 ```
 
 - DON'T forget: `ExecutionPlan`s require every provider's client layer.

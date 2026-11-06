@@ -1,28 +1,31 @@
 # HttpClient
 
-`effect/unstable/http`. Service `HttpClient.HttpClient`; impl layer `FetchHttpClient.layer` (also `NodeHttpClient`/`BunHttpClient`).
+`effect/http`. Service `HttpClient.HttpClient`; impl layer `FetchHttpClient.layer` (also `NodeHttpClient`/`BunHttpClient`).
 
 - Methods: `client.get/head/post/patch/put/del(url, options?)`, `client.execute(request)`.
 - Combinators (pipeable): `mapRequest`, `mapRequestInput` (prepends, runs before existing middleware), `mapRequestEffect`, `filterStatus`, `filterStatusOk` (fail on non-2xx), `retryTransient({ schedule, times })`, `withRateLimiter(opts)`, `followRedirects`, `withCookiesRef`.
 - Request builders: `HttpClientRequest.post/prependUrl/setUrl/setUrlParams/acceptJson/accept/bearerToken/bodyJson` (effectful) / `bodyJsonUnsafe` (sync) / `bodyText/bodyUrlParams`; `schemaBodyJson(Schema)(req, value)` → `Effect<HttpClientRequest, HttpBody.HttpBodyError>` (encodes body via schema).
 - Response decoders: `HttpClientResponse.schemaBodyJson(schema)`, `schemaJson`, `schemaNoBody`; `HttpClientResponse.filterStatusOk(response)` → `Effect<HttpClientResponse, HttpClientError.HttpClientError>` (response-level variant of the client combinator).
-- Errors: import module `HttpClientError` from `effect/unstable/http`; the failure is `HttpClientError.HttpClientError` with the variant in `.reason`; members `StatusCodeError`, `TransportError`, `DecodeError`, `EncodeError`, `EmptyBodyError`, `InvalidUrlError`, and `isHttpClientError(u)`. `StatusCodeError` carries `{ request, response }` (read `response.headers`).
-- Rate limiting: `withRateLimiter({ limiter, window, limit, key, algorithm?, tokens?, disableResponseInspection?, disableAdaptiveLearning? })` adds `RateLimiter.RateLimiterError` to the client's error channel. `limiter` is the `RateLimiter.RateLimiter` service (from `effect/unstable/persistence`); provide `RateLimiter.layer` over a store (`RateLimiter.layerStoreMemory`, or Redis). `key` is a string or `(request) => string`. Paces requests proactively AND auto-retries HTTP `429` by inspecting `Retry-After` / rate-limit response headers (built-in — no manual `retry-after` parsing needed).
+- Errors: import module `HttpClientError` from `effect/http`; the failure is `HttpClientError.HttpClientError` with the variant in `.reason`; members `StatusCodeError`, `TransportError`, `DecodeError`, `EncodeError`, `EmptyBodyError`, `InvalidUrlError`, and `isHttpClientError(u)`. `StatusCodeError` carries `{ request, response }` (read `response.headers`).
+- Rate limiting: `withRateLimiter({ limiter, window, limit, key, algorithm?, tokens?, disableResponseInspection?, disableAdaptiveLearning? })` adds `RateLimiter.RateLimiterError` to the client's error channel. `limiter` is the `RateLimiter.RateLimiter` service (from `effect/persistence`); provide `RateLimiter.layer` over a store (`RateLimiter.layerStoreMemory`, or Redis). `key` is a string or `(request) => string`. Paces requests proactively AND auto-retries HTTP `429` by inspecting `Retry-After` / rate-limit response headers (built-in — no manual `retry-after` parsing needed).
 
 DO bake base-url/headers/retry into the client once via `mapRequest` + `filterStatusOk` + `retryTransient`.
 DO decode bodies with `schemaBodyJson(Schema)`; wrap raw failures into a tagged error with `mapError`.
 DO use `bodyJsonUnsafe` for already-validated sync payloads; `bodyJson` when encoding can fail.
 DO reach for `withRateLimiter` to pace outbound calls to a rate-limited API; it handles `429` + `Retry-After` for you, so don't hand-roll header parsing.
 DON'T forget `filterStatusOk` — without it 4xx/5xx are successful responses, not failures.
-DON'T provide `FetchHttpClient.layer` at call site if the service layer already provides it.
+DON'T provide `FetchHttpClient.layer` inside a service's layer or at a call site: the edge wires it, so a test can provide `HttpClient.make` instead.
 DON'T forget the `RateLimiter` layer + a store when using `withRateLimiter`, and account for the added `RateLimiterError` in the error channel.
 
 ```ts
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as RateLimiter from "effect/unstable/persistence/RateLimiter"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
+import * as RateLimiter from "effect/persistence/RateLimiter"
+
+const RateLimiterLayer = RateLimiter.layer.pipe(Layer.provide(RateLimiter.layerStoreMemory))
+const PacedLayer = Layer.mergeAll(FetchHttpClient.layer, RateLimiterLayer)
 
 const paced = Effect.gen(function*() {
   const limiter = yield* RateLimiter.RateLimiter
@@ -31,10 +34,7 @@ const paced = Effect.gen(function*() {
     HttpClient.filterStatusOk // error channel now: HttpClientError | RateLimiterError
   )
   return yield* client.get("https://api.example.com/data")
-}).pipe(Effect.provide(Layer.mergeAll(
-  FetchHttpClient.layer,
-  RateLimiter.layer.pipe(Layer.provide(RateLimiter.layerStoreMemory))
-)))
+}).pipe(Effect.provide(PacedLayer))
 ```
 
 ```ts
@@ -44,10 +44,10 @@ import { flow } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 class Todo extends Schema.Class<Todo>("Todo")({
   userId: Schema.Number, id: Schema.Number, title: Schema.String, completed: Schema.Boolean

@@ -80,7 +80,7 @@ A layer used by several stages is still built once: memoization is by reference.
 
 ### A CLI provides per subcommand
 
-`Command.provide(layer)` (from `effect/unstable/cli/Command`) feeds a layer to ONE command's handler, so a subcommand builds only the services it uses: `--help` builds nothing, and a command that never touches the remote API never reads its token. Only the platform layer is provided once, at `run`.
+`Command.provide(layer)` (from `effect/cli/Command`) feeds a layer to ONE command's handler, so a subcommand builds only the services it uses: `--help` builds nothing, and a command that never touches the remote API never reads its token. Only the platform layer is provided once, at `run`.
 
 ```ts
 const show = Command.make(
@@ -111,5 +111,5 @@ Command.run(cli, { version }).pipe(Effect.provide(BunServices.layer), BunRuntime
 
 - DO attach layers as `static readonly layer` on the service class.
 - DO keep layers focused (one service / small related group).
-- DO prefer `provide` over leaving requirements open so types stay small and deps are explicit.
+- DO leave a service's own `layer` open and wire once at the edge, one `provide` per named stage, so a test can build the real service over fakes of what it depends on.
 - DON'T use `Layer.merge` where you meant `provide` — `merge` leaves deps unsatisfied/exposed; `provide` hides+consumes, `provideMerge` keeps both.

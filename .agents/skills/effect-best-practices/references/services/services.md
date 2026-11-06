@@ -31,7 +31,7 @@ export class Rollup extends Context.Service<Rollup>()(
 }
 ```
 
-`make` returns a plain object. Calling the class's own `.of({ ... })` inside the `make` passed to `Context.Service` does NOT compile in rc.117: `make` is part of the class's base expression, so TypeScript reports `TS2506: 'Rollup' is referenced directly or indirectly in its own base expression` — with the shape inferred (`<Self>()`) and with it declared (`<Self, Shape>()`) alike. To pin the shape, declare it as the second type parameter: `make`'s result is then checked against it at the `return`. `.of` is fine anywhere outside the base expression, e.g. `Layer.succeed(Rollup, Rollup.of({ ... }))`.
+`make` returns a plain object. Calling the class's own `.of({ ... })` inside the `make` passed to `Context.Service` does NOT compile in 4.1.2: `make` is part of the class's base expression, so TypeScript reports `TS2506: 'Rollup' is referenced directly or indirectly in its own base expression` — with the shape inferred (`<Self>()`) and with it declared (`<Self, Shape>()`) alike. To pin the shape, declare it as the second type parameter: `make`'s result is then checked against it at the `return`. `.of` is fine anywhere outside the base expression, e.g. `Layer.succeed(Rollup, Rollup.of({ ... }))`.
 
 `Layer.effect(this, this.make)` and curried `Layer.effect(this)(this.make)` are both valid:
 

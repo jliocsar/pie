@@ -94,6 +94,8 @@ Stream.broadcastN({ n, capacity, ... })
 Stream.partition(filter, { capacity? })
 ```
 
+`Stream.filterMap`, `filterMapEffect` and `partition` take a `Filter`, which returns a `Result`, not an `Option` or a predicate.
+
 ## Scheduling on streams
 
 ```ts

@@ -5,7 +5,7 @@ Request + RequestResolver. Batch is formed by concurrent requests in a window; d
 ```ts
 class GetUserById extends Request.Class<{ readonly id: number }, User, UserNotFound, never> {}
 
-const resolver = yield* RequestResolver.make<GetUserById>(Effect.fn(function* (entries) {
+const resolver = yield* RequestResolver.make<GetUserById>(Effect.fn("Users.getUserById.resolve")(function*(entries) {
   for (const entry of entries) {
     const user = table.get(entry.request.id)
     entry.completeUnsafe(user ? Exit.succeed(user) : Exit.fail(new UserNotFound({ id: entry.request.id })))

@@ -7,8 +7,8 @@
 - DO add `.annotate({ description })` to schema fields used as params.
 
 ```ts
-import * as Tool from "effect/unstable/ai/Tool"
-import * as Toolkit from "effect/unstable/ai/Toolkit"
+import * as Tool from "effect/ai/Tool"
+import * as Toolkit from "effect/ai/Toolkit"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 

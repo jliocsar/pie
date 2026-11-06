@@ -94,9 +94,9 @@ Schedule.forever.pipe(Schedule.upTo({ duration: "1 minute", times: 20 }))   // s
 effect.pipe(Effect.catchCauseIf(Cause.hasFails, (cause) => useCachedValue(Cause.squash(cause))))
 
 // Clamp a computed delay to a floor: pick the larger of two Durations.
-Duration.max(computedBackoff, "500 millis")
+Duration.max(computedBackoff, Duration.millis(500))
 ```
 
 - `Schedule.upTo({ duration?, times? })` — bounds an existing schedule; stops as soon as EITHER limit is reached. `times` caps outputs (with `repeat`/`retry` the effect runs once before stepping, so evals can be `times + 1`).
 - `Effect.catchCauseIf(self, predicate, f)` (curried `(predicate, f)`) — `predicate: Predicate<Cause<E>>`, handler `(cause) => Effect`. Use `catchCauseFilter` when you also need to narrow/transform the cause; use `catchCauseIf` for a plain boolean test.
-- `Duration.max(self, that)` (curried `(that)`) — larger of two durations; handy to enforce a minimum delay/backoff.
+- `Duration.max(self, that)` (curried `(that)`) — larger of two `Duration`s, not duration strings; handy to enforce a minimum delay/backoff.

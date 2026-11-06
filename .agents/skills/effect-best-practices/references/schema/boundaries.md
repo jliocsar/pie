@@ -5,7 +5,7 @@ Data enters a program in three places: CLI arguments, the environment, and files
 ## One schema, three entry points
 
 ```ts
-const profile = Argument.String("profile").pipe(Argument.withSchema(PathSegment))   // CLI (effect/unstable/cli/Argument)
+const profile = Argument.String("profile").pipe(Argument.withSchema(PathSegment))   // CLI (effect/cli/Argument)
 const region = yield* Config.schema(HostLabel, "REGION")                             // env
 const loaded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Profile))(text) // file
 ```

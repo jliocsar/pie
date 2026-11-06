@@ -1,6 +1,6 @@
 # Cluster
 
-`effect/unstable/cluster`. Entities are sharded, addressable, stateful actors backed by Rpc defs.
+`effect/cluster`. Entities are sharded, addressable, stateful actors backed by Rpc defs.
 
 - `Entity.make(name, [rpc...])` — entity = array of `Rpc` defs.
 - `.toLayer(handlers, { maxIdleTime })` — passivation: idle entity stopped, recreated on demand.
@@ -12,15 +12,16 @@ DO `Rpc.fork` inside read handlers to allow concurrency (default = sequential pe
 DON'T assume messages persist — they're volatile unless annotated `ClusterSchema.Persisted`.
 
 ```ts
-import { NodeClusterSocket, NodeRuntime } from "@effect/platform-node"
+import * as NodeClusterSocket from "@effect/platform-node/NodeClusterSocket"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
-import * as ClusterSchema from "effect/unstable/cluster/ClusterSchema"
-import * as Entity from "effect/unstable/cluster/Entity"
-import * as TestRunner from "effect/unstable/cluster/TestRunner"
-import * as Rpc from "effect/unstable/rpc/Rpc"
+import * as ClusterSchema from "effect/cluster/ClusterSchema"
+import * as Entity from "effect/cluster/Entity"
+import * as TestRunner from "effect/cluster/TestRunner"
+import * as Rpc from "effect/rpc/Rpc"
 
 const Increment = Rpc.make("Increment", { payload: { amount: Schema.Number }, success: Schema.Number })
 const GetCount  = Rpc.make("GetCount", { success: Schema.Number })

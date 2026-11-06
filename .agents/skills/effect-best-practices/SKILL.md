@@ -1,11 +1,13 @@
 ---
 name: effect-best-practices
-description: Effect v4 patterns for effects, services, layers, schema, errors, concurrency, observability, SQL, AI, atoms, and testing. Use when writing or reviewing TypeScript code that uses Effect (the `effect` package or `@effect/*`).
+description: Effect v4 patterns for effects, services, layers, schema, errors, concurrency, observability, CLIs, SQL, AI, atoms, and testing. Use when writing or reviewing TypeScript code that uses Effect (the `effect` package or `@effect/*`).
 ---
 
 # Effect v4 Best Practices
 
-Opinionated, verified patterns for Effect v4 (`effect@4.x` and `@effect/*`). Optimized for type safety, testability, observability, and tracing. All rules are verified against the Effect v4 source — they differ substantially from Effect v3.
+Opinionated, verified patterns for Effect v4 (`effect@4.x` and `@effect/*`). Optimized for type safety, testability, observability, and tracing. All rules are verified against the source of Effect 4.1.2 — they differ substantially from Effect v3.
+
+When this skill and the source disagree, the source wins. Say so when it happens: the disagreement is a bug in this skill.
 
 Supported packages: `effect`, `@effect/atom-react`, `@effect/opentelemetry`, `@effect/platform-bun`, `@effect/sql-*`, `@effect/ai-*`, `@effect/vitest`.
 
@@ -17,16 +19,17 @@ Start at `references/index.md` and navigate to the relevant pillar. Each folder'
 
 | Topic | DO | DON'T |
 | --- | --- | --- |
-| Imports | leaf modules: `effect/Effect`, `effect/unstable/cli/Command` | barrels: `from "effect"`, `effect/testing`, `effect/unstable/http` |
+| Imports | leaf modules: `effect/Effect`, `effect/cli/Command` | barrels: `from "effect"`, `effect/testing`, `effect/http` |
 | Authoring | `Effect.gen` + `Effect.fn("name")`, attach combinators via `.pipe` | functions returning `Effect.gen`; `.pipe` on `Effect.fn` |
 | Failing in gen | `return yield* new SomeError(...)` | bare `yield*` of an error mid-block |
 | Services | `Context.Service<X>()("id", { make })` + hand-written `static layer` | `Effect.Service` (gone); assuming `.Default` |
 | Deps | resolve via `yield*` inside `make`, platform services and `Config` included, so methods carry no requirements | `Service.use` everywhere; `yield* FileSystem.FileSystem` in free functions |
 | Layers | `static readonly layer = Layer.effect(this, this.make)`, deps left open; wire once at the edge with `mergeAll` (independent), `provide` (hide dep), `provideMerge` (expose), one named stage per `provide` | `Layer.provide` inside a service's own `layer`; deep `Layer.provide` chains |
-| Testing | build the real service from its open `layer` over fakes: `Layer.succeed`, `Layer.mock`, `HttpClient.make`, `ChildProcessSpawner.make`, `TestConsole.layer` | fake binaries on disk, a patched `fetch`, env vars that exist only for tests |
-| Errors | `Schema.TaggedError<Self>()("Tag", {...})`, one per failure reason | `Schema.TaggedErrorClass` (not in rc.117); generic shared errors |
+| Versions | pin every Effect package exactly, all to one version | a caret on `effect` or `@effect/*`: `@stability unstable` modules, `cli/Command` and `http/HttpClient` among them, can break in minor releases |
+| Testing | build the real service from its open `layer` over fakes: `Layer.succeed`, `Layer.mock`, `HttpClient.make`, `ChildProcessSpawner.make`, `TestConsole.layer`; `HttpApiTest`, `McpTest.makeClient` and `Command.runWith` run servers and CLIs in memory | fake binaries on disk, a patched `fetch`, env vars that exist only for tests |
+| Errors | `Schema.TaggedError<Self>()("Tag", {...})`, one per failure reason | `Schema.TaggedErrorClass` (not in 4.1.2); generic shared errors |
 | Catch | `Effect.catch` / `catchTag` / `catchTags` / `catchCause` | `catchAll` / `catchSome` (renamed) |
-| Tags | `catchTag` / `catchReason` / `Match.tag` / `Match.tagsExhaustive` | reading `x._tag` or `error.reason._tag` |
+| Tags | `catchTag` / `catchReason` / `Match.tagsExhaustive` / `Union.match`; `Union.guards.X(value)` for one variant | reading `x._tag` or `error.reason._tag`: it keeps compiling when a variant is added, so the new case goes unhandled; `Predicate.isTagged`: it takes `unknown`, so a typo compiles |
 | Result type | `Result` (yieldable) | `Either` (gone) |
 | Schema filters | `.check(Schema.isMinLength(n))` | `Schema.minLength(n)` (gone) |
 | IDs / domain | brand ids (`Schema.brand`); `Option<T>` for absence | plain `string` ids; `null`/`undefined` |
@@ -91,7 +94,7 @@ program.pipe(Effect.provide(MainLayer), BunRuntime.runMain)
 
 ## Effect Language Server (recommended)
 
-Install `@effect/language-service` and add `{ "plugins": [{ "name": "@effect/language-service" }] }` to `tsconfig.json`, then select the workspace TypeScript version. It catches floating effects, missing requirements, and wrong yield patterns at edit-time.
+Install `@effect/tsgo` with `typescript@7` and run `npx @effect/tsgo setup`. The plugin name in `tsconfig.json` stays `{ "plugins": [{ "name": "@effect/language-service" }] }`. Select the workspace TypeScript version. It catches floating effects, missing requirements, and wrong yield patterns at edit-time.
 
 ## Reference map
 
@@ -101,10 +104,11 @@ Install `@effect/language-service` and add `{ "plugins": [{ "name": "@effect/lan
 - `references/schema/index.md` — schema, branded types, codecs.
 - `references/concurrency/index.md` — concurrency, fibers, streams, queues, scheduling, batching.
 - `references/observability/index.md` — logging, tracing, metrics, OpenTelemetry.
+- `references/cli/index.md` — commands, flags, validation, output, testing a CLI.
 - `references/networking/index.md` — HTTP client, HttpApi, RPC, Workflow, Cluster.
 - `references/sql/index.md` — clients, queries, schemas, models, migrations.
 - `references/ai/index.md` — language models, providers, tools, structured output, embeddings, chat.
 - `references/atom/index.md` — reactive state and React bindings.
 - `references/platform-bun/index.md` — Bun runtime, services, HTTP server.
-- `references/testing/index.md` — `@effect/vitest`.
+- `references/testing/index.md` — `@effect/vitest`, `bun:test`, fakes.
 - `references/anti-patterns.md` — forbidden patterns and v3 holdovers.

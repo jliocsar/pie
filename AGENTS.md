@@ -126,8 +126,13 @@ Effect 4 is stable, but that doesn't cover what pie is built from: `cli/Command`
 the rest of those modules are tagged `@stability unstable`, and an unstable module can break in a
 minor release.
 
-The `effect-best-practices` skill can lag the pinned release, and some names it uses may have been
-renamed since. Where the skill and `node_modules/effect/src` disagree, the source wins.
+The `effect-best-practices` skill is written against one release and can lag the pinned one. Where
+it and `node_modules/effect/src` disagree, the source wins, and the disagreement is a bug in the skill.
+
+The skill comes from `agents-boilerplate` through the `skills` CLI, never by copying it: `bunx --bun
+skills add jliocsar/agents-boilerplate -s effect-best-practices -a claude-code -y` replaces the
+directory whole and records the source and hash in `skills-lock.json` (measured). Hand-kept copies
+had drifted apart on 30 of 43 files.
 
 ## Releases
 
@@ -313,8 +318,8 @@ This is why `statement-order` leaves a type alias containing `typeof` unranked: 
 sort above constants, which would force every schema type away from its schema.
 :::
 
-- Errors are `Schema.TaggedError` with a `message` getter. Effect 4.1.2 has no `TaggedErrorClass`,
-  whatever the `effect-best-practices` skill says. The getter's message is a full sentence, names the fix where
+- Errors are `Schema.TaggedError` with a `message` getter. Effect 4.1.2 has no `TaggedErrorClass`. The
+  getter's message is a full sentence, names the fix where
   possible. One reporter prints `error.message`; an error without one exits silently.
 - Module-level primitive constants are `SCREAMING_SNAKE_CASE` — they are the knobs and magic values,
   and the casing separates them from computed bindings. **Not enforced**: oxlint has no

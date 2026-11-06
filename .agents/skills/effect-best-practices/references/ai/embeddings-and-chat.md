@@ -5,8 +5,8 @@
 Core: `EmbeddingModel.EmbeddingModel` service with `embed(input: string)` → `EmbedResponse { vector }` and `embedMany(inputs: string[])` → `EmbedManyResponse { embeddings, usage }`. Also `EmbeddingModel.Dimensions` service (number).
 
 ```ts
-import * as EmbeddingModel from "effect/unstable/ai/EmbeddingModel"
-import { OpenAiEmbeddingModel } from "@effect/ai-openai"
+import * as EmbeddingModel from "effect/ai/EmbeddingModel"
+import * as OpenAiEmbeddingModel from "@effect/ai-openai/OpenAiEmbeddingModel"
 import * as Effect from "effect/Effect"
 
 const embedLayer = OpenAiEmbeddingModel.model("text-embedding-3-small", {
@@ -32,8 +32,8 @@ Constructors: `Chat.empty: Effect<Chat>`, `Chat.fromPrompt(prompt: Prompt.RawInp
 History is kept in `session.history: Ref<Prompt.Prompt>`. Each turn appends automatically.
 
 ```ts
-import * as Chat from "effect/unstable/ai/Chat"
-import * as Prompt from "effect/unstable/ai/Prompt"
+import * as Chat from "effect/ai/Chat"
+import * as Prompt from "effect/ai/Prompt"
 import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 
@@ -79,7 +79,7 @@ while (true) {
 
 `AiError` is a `Schema.Error` with `_tag: "AiError"`, `module`, `method`, and a `reason: AiErrorReason`. `error.isRetryable` and `error.retryAfter` delegate to the reason.
 
-`AiErrorReason` union (18 members): `RateLimitError, QuotaExhaustedError, AuthenticationError, ContentPolicyError, InvalidRequestError, InternalProviderError, NetworkError, InvalidOutputError, StructuredOutputError, UnsupportedSchemaError, UnknownError, ToolNotFoundError, ToolParameterValidationError, InvalidToolResultError, ToolResultEncodingError, ToolConfigurationError, ToolkitRequiredError, InvalidUserInputError`. Each carries `_tag`, `message`, `isRetryable`.
+`AiErrorReason` union (19 members): `RateLimitError, QuotaExhaustedError, AuthenticationError, ContentPolicyError, InvalidRequestError, InvalidResponseError, InternalProviderError, NetworkError, InvalidOutputError, StructuredOutputError, UnsupportedSchemaError, UnknownError, ToolNotFoundError, ToolParameterValidationError, InvalidToolResultError, ToolResultEncodingError, ToolConfigurationError, ToolkitRequiredError, InvalidUserInputError`. Each carries `_tag`, `message`, `isRetryable`.
 
 - DO map `AiError` → domain error with `Schema.TaggedError` embedding `AiError.AiErrorReason` (itself a Schema).
 
@@ -105,5 +105,5 @@ Effect.catchTag(
 )
 ```
 
-- Branch on the reason with `Effect.catchReason("AiError", "RateLimitError", …)` / `Effect.catchReasons`, or `Match.value(error.reason).pipe(Match.tagsExhaustive({…}))`; use `error.retryAfter` / `error.isRetryable`. Never read `error.reason._tag` — `_` means private.
+- Branch on the reason with `Effect.catchReason("AiError", "RateLimitError", …)` / `Effect.catchReasons`, or `Match.value(error.reason).pipe(Match.tagsExhaustive({…}))`; use `error.retryAfter` / `error.isRetryable`. Never read `error.reason._tag`: a read keeps compiling when a reason is added, so the new case goes unhandled, and `tagsExhaustive` stops compiling.
 - Guards: `AiError.isAiError`, `AiError.isAiErrorReason`. `Effect.catchReason` is supported for reason-based handling.

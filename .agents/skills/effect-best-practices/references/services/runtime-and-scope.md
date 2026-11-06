@@ -56,7 +56,7 @@ Inside a `Layer.effect`/service `make`, acquired resources release when the laye
 
 ```ts
 Layer.effect(Connection, Effect.gen(function*() {
-  yield* Scope.addFinalizer(Effect.log("Closing connection"))
+  yield* Effect.addFinalizer(() => Effect.log("Closing connection"))
   return Connection.of({ /* ... */ })
 }))
 ```

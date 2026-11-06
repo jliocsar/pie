@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "effect-best-practices": {
+      "source": "jliocsar/agents-boilerplate",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/effect-best-practices/SKILL.md",
+      "computedHash": "cf0fbb65a59db2d1d8b41aa8568991b8200fc0cd77f61d8dcff94611ab3262ac"
+    },
+    "untangle-codebase": {
+      "source": "caldoai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/untangle-codebase/SKILL.md",
+      "computedHash": "d5e9e1c4a1f30f34c0120dea773d0170004d6c19ef5e8f236c35773bd6c5bdbc"
+    }
+  }
+}
