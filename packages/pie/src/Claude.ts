@@ -25,7 +25,7 @@ import {
   MARKDOWN_BLOCK_MARKERS,
   REGULAR_FILE_MODE,
   withBlock,
-} from './Pod.ts'
+} from './Box.ts'
 
 interface ClaudeState {
   readonly previousManifest: Manifest

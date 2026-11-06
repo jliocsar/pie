@@ -11,7 +11,8 @@ import { ConfigRepo, configFilePathOf, RepositoryName } from '../ConfigRepo.ts'
 import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import { Git } from '../Git.ts'
 import { Mise } from '../Mise.ts'
-import { Box, HomeSets } from '../Pod.ts'
+import { Box } from '../Box.ts'
+import { HomeSets } from '../HomeSets.ts'
 import { Process } from '../Process.ts'
 
 const COMMIT_ABBREVIATION_LENGTH = 7

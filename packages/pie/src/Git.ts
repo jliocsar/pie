@@ -14,7 +14,7 @@ import {
   type RecipeName,
   repositoryUrlOf,
 } from './ExeDev.ts'
-import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Pod.ts'
+import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Box.ts'
 import { Process } from './Process.ts'
 
 interface GitRoute {

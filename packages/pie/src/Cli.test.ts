@@ -34,7 +34,7 @@ import {
   VmTagsMissing,
 } from './ExeDev.ts'
 import { RememberedConfigRepositoryInvalid, RepositoryUnreachable } from './Git.ts'
-import { HomeFileNotPies } from './Pod.ts'
+import { HomeFileNotPies } from './HomeSets.ts'
 import {
   commitToConfigSource,
   CONFIG_REPOSITORY,

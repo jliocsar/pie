@@ -14,7 +14,7 @@ import {
   shellBlockMarkersOf,
   shellPathOf,
   withBlock,
-} from './Pod.ts'
+} from './Box.ts'
 import { Process } from './Process.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'

@@ -162,7 +162,7 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Pod.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, the marked blocks pie keeps in files it shares, and the home sets. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Box.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, and the marked blocks pie keeps in files it shares. It knows nothing about a config. `HomeSets.ts` puts a recipe's home files on it. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
 
 The box's top-level layout is one home-relative table: each place pie claims under HOME, the root it
 hangs off (HOME, the XDG config dir or the XDG cache dir), and whether pie owns it or only appends

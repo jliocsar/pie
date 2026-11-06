@@ -19,7 +19,7 @@ import {
   RECIPE_TAG_PREFIX,
   RequiredTagName,
 } from './ExeDev.ts'
-import { APPEND_ONLY_HOME_PATHS, BOX_LAYOUT, homePathOf, PIE_OWNED_HOME_PATHS } from './Pod.ts'
+import { APPEND_ONLY_HOME_PATHS, BOX_LAYOUT, homePathOf, PIE_OWNED_HOME_PATHS } from './Box.ts'
 
 type ConfigKind = ReferenceKind | 'recipe'
 
