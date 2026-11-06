@@ -53,7 +53,7 @@ GH_HOST = "github.int.exe.xyz"
 const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
 
 export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
-  const processes = yield* Process
+  const processes = yield* Process.make
 
   return yield* processes.capture(['git', ...gitArguments], {})
 })

@@ -56,10 +56,7 @@ export class Mise extends Context.Service<Mise>()('pie/Mise', {
     const box = yield* Box
 
     const runCommand = (commandLine: readonly [string, ...string[]]) =>
-      processes.inherit(commandLine, {
-        workingDirectory: box.home,
-        environment: { HOME: box.home },
-      })
+      processes.inherit(commandLine, box.home)
 
     const runMise = (miseArguments: readonly string[]) =>
       runCommand([box.paths.miseBinary, ...miseArguments])

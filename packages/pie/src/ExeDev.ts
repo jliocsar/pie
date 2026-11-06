@@ -1,5 +1,4 @@
 import * as Arr from 'effect/Array'
-import * as Config from 'effect/Config'
 import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import { pipe } from 'effect/Function'
@@ -10,8 +9,6 @@ import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
 const INTEGRATION_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
-const DEFAULT_INTEGRATION_URL = 'https://{integration}.int.exe.xyz'
-const INTEGRATION_PLACEHOLDER = '{integration}'
 
 export const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
@@ -50,6 +47,9 @@ export const RequiredTagName = TagName.check(
 )
 
 export const isRecipeName = Schema.is(RecipeName)
+
+export const repositoryUrlOf = (integrationName: IntegrationName, repositoryName: string) =>
+  `https://${integrationName}.int.exe.xyz/${repositoryName}.git`
 
 const listOf = (names: readonly string[]) =>
   Arr.isReadonlyArrayNonEmpty(names) ? names.join(', ') : 'none'
@@ -108,9 +108,6 @@ export const recipeNameOf = Effect.fn('recipeNameOf')(function* (vmTags: readonl
 export class ExeDev extends Context.Service<ExeDev>()('pie/ExeDev', {
   make: Effect.gen(function* () {
     const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-    const integrationUrlTemplate = yield* Config.String('PIE_INTEGRATION_URL').pipe(
-      Config.withDefault(DEFAULT_INTEGRATION_URL),
-    )
 
     const readReflection = Effect.fn('ExeDev.readReflection')(function* <Decoded>(
       reflectionUrl: string,
@@ -139,9 +136,6 @@ export class ExeDev extends Context.Service<ExeDev>()('pie/ExeDev', {
       return name
     })
 
-    const integrationUrl = (integrationName: IntegrationName) =>
-      integrationUrlTemplate.replaceAll(INTEGRATION_PLACEHOLDER, integrationName)
-
     const requireRecipeTags = Effect.fn('ExeDev.requireRecipeTags')(function* (
       recipeName: RecipeName,
       recipeTags: readonly string[],
@@ -160,7 +154,7 @@ export class ExeDev extends Context.Service<ExeDev>()('pie/ExeDev', {
       )
     })
 
-    return { vmTags, vmName, integrationUrl, requireRecipeTags }
+    return { vmTags, requireRecipeTags }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

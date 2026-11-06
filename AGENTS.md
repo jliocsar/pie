@@ -384,8 +384,11 @@ clone's remote stays on the integration host.
 
 Git's smart HTTP works through an http-proxy: a clone through one succeeded, and a private repo
 the token can't read answered 403 instead of asking for credentials, so the header arrived
-(measured). `PIE_INTEGRATION_URL` replaces the host, with `{integration}` standing for the name,
-which is how the tests point pie at local bare repos. A clone or fetch that fails names the repo,
+(measured). The tests point pie at local repos by faking the process spawner around the run: every
+git command gets a `url.<local>.insteadOf` for that one command, so a clone's remote keeps the
+integration host, and nothing in pie exists only for them. A test's own runtime must not build a
+layer the run builds too: a `Command.provide` reuses it through the runtime's memo map, dependencies
+and all, and a fake provided around the run never reaches it (measured). A clone or fetch that fails names the repo,
 the integration, and the tag that integration attaches to: `pie` for the config repo, the recipe's
 tag for the rest.
 
@@ -488,7 +491,7 @@ Pie only reads it for server names and runs `claude mcp add-json` and `claude mc
 scope, so Claude writes its own file. A second `up` of the same recipe runs no `claude` at all.
 
 Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: that directory isn't on the
-`PATH` a plain `ssh vm cmd` gets, and the tests plant a fake mise at that path. Every command it
+`PATH` a plain `ssh vm cmd` gets, and the tests' fake spawner records it by that path. Every command it
 runs gets stdin closed, because under `curl | sh` stdin is the script itself.
 
 The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and

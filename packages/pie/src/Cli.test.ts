@@ -6,7 +6,6 @@ import * as ConfigProvider from 'effect/ConfigProvider'
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
-import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
@@ -16,6 +15,8 @@ import * as Str from 'effect/String'
 import * as CliError from 'effect/unstable/cli/CliError'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
+import * as ChildProcess from 'effect/unstable/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import { pie } from './Cli.ts'
 import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
 import {
@@ -34,7 +35,6 @@ import {
 } from './ExeDev.ts'
 import { RememberedConfigRepositoryInvalid, RepositoryUnreachable } from './Git.ts'
 import { HomeFileNotPies } from './Pod.ts'
-import { Process } from './Process.ts'
 import {
   commitToConfigSource,
   CONFIG_REPOSITORY,
@@ -44,16 +44,22 @@ import {
   SEED_CONFIG_FILES,
 } from './test/TestPie.ts'
 
-const FAKE_MISE_SCRIPT = `#!/bin/sh
-printf '%s\\n' "$*" >> "$HOME/mise-calls"
-`
+interface RecordedRun {
+  readonly machineName: string
+  readonly commandLine: string
+  readonly workingDirectory: string | undefined
+}
 
 const EXECUTABLE_FILE_MODE = 0o755
 const PERMISSION_BITS = 0o777
 const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
-const TASK_PATH_PATTERN = /^exec -- \/\S*\/(?<taskName>[^/\s]+)$/u
-const TOOL_AND_TASK_CALLS = ['install', 'exec -- <tasks>/workspace']
+
+const TEMPORARY_FILE_RUN_PATTERN =
+  /^(?<runner>exec --|sh|curl \S+ \S+ -o) \/\S*\/(?<fileName>[^/\s]+)$/u
+
+const INTEGRATIONS_WITH_LOCAL_REPOSITORIES = ['github', 'hapana-gh-git']
+const TOOL_AND_TASK_CALLS = ['install', 'exec -- <temporary>/workspace']
 
 const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
@@ -75,9 +81,7 @@ const WORK_RECIPE_TOML = SEED_CONFIG_FILES['recipes/personal.toml'].replace(
   'label = "Personal"\ntags = ["work-gh", "work-gcp"]\n',
 )
 
-const bunServicesRuntime = ManagedRuntime.make(
-  Process.layer.pipe(Layer.provideMerge(BunServices.layer)),
-)
+const bunServicesRuntime = ManagedRuntime.make(BunServices.layer)
 
 const capturingConsole = () => {
   const stdout: string[] = []
@@ -111,9 +115,49 @@ const reflectionAnswering = (vmName: string, vmTags: readonly string[]) => {
 
 const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) {
   const path = yield* Path.Path
+  const realSpawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const { sourceDirectory } = yield* makeConfigSource(temporaryDirectory)
   const output = capturingConsole()
+  const recordedRuns: RecordedRun[] = []
   const homeOf = (machineName: string) => path.join(temporaryDirectory, machineName)
+  const gitConfigArguments = Arr.flatMap(
+    INTEGRATIONS_WITH_LOCAL_REPOSITORIES,
+    (integrationName) => [
+      '-c',
+      `url.${path.join(temporaryDirectory, integrationName)}/.insteadOf=https://${integrationName}.int.exe.xyz/`,
+    ],
+  )
+  const spawnerOn = (machineName: string) =>
+    ChildProcessSpawner.make((command) => {
+      if (!ChildProcess.isStandardCommand(command)) {
+        return realSpawner.spawn(command)
+      }
+
+      if (command.command === 'git') {
+        return realSpawner.spawn(
+          ChildProcess.make('git', [...gitConfigArguments, ...command.args], command.options),
+        )
+      }
+
+      const miseBinary = path.join(homeOf(machineName), '.local', 'bin', 'mise')
+
+      recordedRuns.push({
+        machineName,
+        commandLine: (command.command === miseBinary
+          ? command.args
+          : [command.command, ...command.args]
+        ).join(' '),
+        workingDirectory: command.options.cwd,
+      })
+
+      return realSpawner.spawn(ChildProcess.make('true', [], command.options))
+    })
+  const recordedRunsOn = (machineName: string) =>
+    Arr.filter(recordedRuns, (recordedRun) => recordedRun.machineName === machineName)
+  const miseCallsOn = (machineName: string) =>
+    Arr.map(recordedRunsOn(machineName), ({ commandLine }) =>
+      commandLine.replace(TEMPORARY_FILE_RUN_PATTERN, '$<runner> <temporary>/$<fileName>'),
+    )
   const runPieOn = (
     machineName: string,
     commandLine: readonly string[],
@@ -121,19 +165,15 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
   ) =>
     Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
       Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(machineName, vmTags)),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawnerOn(machineName)),
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
-        ConfigProvider.fromEnv({
-          env: {
-            HOME: homeOf(machineName),
-            PIE_INTEGRATION_URL: path.join(temporaryDirectory, '{integration}'),
-          },
-        }),
+        ConfigProvider.fromEnv({ env: { HOME: homeOf(machineName) } }),
       ),
     )
 
-  return { sourceDirectory, output, homeOf, runPieOn }
+  return { sourceDirectory, output, homeOf, runPieOn, recordedRunsOn, miseCallsOn }
 })
 
 const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
@@ -142,7 +182,7 @@ const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
   const misePath = path.join(home, '.local', 'bin', 'mise')
 
   yield* fileSystem.makeDirectory(path.dirname(misePath), { recursive: true })
-  yield* fileSystem.writeFileString(misePath, FAKE_MISE_SCRIPT, { mode: EXECUTABLE_FILE_MODE })
+  yield* fileSystem.writeFileString(misePath, '')
   yield* Effect.forEach(
     CHECKED_OUT_REPOSITORY_DIRECTORIES,
     (repositoryDirectory) =>
@@ -151,22 +191,6 @@ const prepareBox = Effect.fn('prepareBox')(function* (home: string) {
       }),
     { discard: true },
   )
-})
-
-const readMiseCalls = Effect.fn('readMiseCalls')(function* (home: string) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const miseCallsPath = path.join(home, 'mise-calls')
-
-  if (yield* fileSystem.exists(miseCallsPath)) {
-    return pipe(
-      (yield* fileSystem.readFileString(miseCallsPath)).split('\n'),
-      Arr.filter(Boolean),
-      Arr.map((miseCall) => miseCall.replace(TASK_PATH_PATTERN, 'exec -- <tasks>/$<taskName>')),
-    )
-  }
-
-  return []
 })
 
 const snapshotDirectory = Effect.fn('snapshotDirectory')(function* (directory: string) {
@@ -283,7 +307,8 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { output, homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const { output, homeOf, miseCallsOn, recordedRunsOn, runPieOn, sourceDirectory } =
+            yield* startPods(temporaryDirectory)
           const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
           const manifestPath = path.join(home, '.config', 'pie', 'manifest.json')
@@ -301,14 +326,14 @@ describe('pie pod up', () => {
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs'])
 
-          const firstMiseCalls = yield* readMiseCalls(home)
+          const firstMiseCalls = miseCallsOn('pod')
           const firstSnapshot = yield* snapshotDirectory(claudeDirectory)
           const firstHomeSnapshot = yield* snapshotHomeFiles(home)
           const firstManifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
 
           yield* runPieOn('pod', ['pod', 'up'])
 
-          const secondMiseCalls = yield* readMiseCalls(home)
+          const secondMiseCalls = miseCallsOn('pod')
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
           const secondHomeSnapshot = yield* snapshotHomeFiles(home)
           const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
@@ -317,6 +342,13 @@ describe('pie pod up', () => {
           )
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
+          expect(
+            pipe(
+              recordedRunsOn('pod'),
+              Arr.map((recordedRun) => recordedRun.workingDirectory),
+              Arr.dedupe,
+            ),
+          ).toEqual([home])
           expect(Record.map(firstSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
             'CLAUDE.md': { text: `# stock\n${CLAUDE_MD_BLOCK}`, mode: 0o644 },
             'agents/oracle.md': {
@@ -402,7 +434,8 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const { homeOf, miseCallsOn, runPieOn, sourceDirectory } =
+            yield* startPods(temporaryDirectory)
           const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
           const ownSkillPath = path.join(claudeDirectory, 'skills', 'mine', 'SKILL.md')
@@ -427,7 +460,6 @@ describe('pie pod up', () => {
           const handoffStillThere = yield* fileSystem.exists(
             path.join(claudeDirectory, 'skills', 'handoff'),
           )
-          const miseCalls = yield* readMiseCalls(home)
           const remainingHomeFiles = yield* snapshotHomeFiles(home)
 
           expect(Record.map(remainingHomeFiles, ({ text }) => text)).toEqual({
@@ -440,7 +472,7 @@ describe('pie pod up', () => {
             'skills/mine/SKILL.md': 'mine',
           })
           expect(handoffStillThere).toBe(false)
-          expect(miseCalls).toEqual([
+          expect(miseCallsOn('pod')).toEqual([
             ...TOOL_AND_TASK_CALLS,
             ...MCP_ADD_CALLS,
             ...TOOL_AND_TASK_CALLS,
@@ -456,7 +488,7 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn } = yield* startPods(temporaryDirectory)
+          const { homeOf, miseCallsOn, runPieOn } = yield* startPods(temporaryDirectory)
           const skillHome = homeOf('skill-box')
           const mcpHome = homeOf('mcp-box')
           const homeFileHome = homeOf('home-box')
@@ -481,11 +513,7 @@ describe('pie pod up', () => {
             path.join(skillHome, '.claude', 'agents'),
           )
           const mcpBoxClaudeWritten = yield* fileSystem.exists(path.join(mcpHome, '.claude'))
-          const miseCalls = [
-            ...(yield* readMiseCalls(skillHome)),
-            ...(yield* readMiseCalls(mcpHome)),
-            ...(yield* readMiseCalls(homeFileHome)),
-          ]
+          const miseCalls = Arr.flatMap(['skill-box', 'mcp-box', 'home-box'], miseCallsOn)
 
           expect(skillClash).toEqual(
             new ClaudeEntryNotPies({ entryPath: path.dirname(ownSkillPath) }),
@@ -565,7 +593,8 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem
           const path = yield* Path.Path
-          const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+          const { homeOf, miseCallsOn, runPieOn, sourceDirectory } =
+            yield* startPods(temporaryDirectory)
           const home = homeOf('work-box')
 
           yield* prepareBox(home)
@@ -586,7 +615,6 @@ describe('pie pod up', () => {
             [...HOME_FILE_PATHS, '.claude', '.config/mise'],
             (homePath) => fileSystem.exists(path.join(home, homePath)),
           )
-          const miseCalls = yield* readMiseCalls(home)
 
           expect(error).toEqual(
             new VmTagsMissing({
@@ -597,7 +625,7 @@ describe('pie pod up', () => {
           )
           expect(error.message).toContain('`ssh exe.dev tag work-box work-gcp`')
           expect(writtenHomePaths).toEqual([])
-          expect(miseCalls).toEqual([])
+          expect(miseCallsOn('work-box')).toEqual([])
         }),
       ),
     ))
@@ -635,15 +663,13 @@ describe('pie pod up', () => {
         Effect.gen(function* () {
           const path = yield* Path.Path
           const { homeOf, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
-          const integrationRepositoryUrl = path.join(
-            temporaryDirectory,
-            'hapana-gh-git',
-            'hapana-hub',
-            'hapana-gcp.git',
-          )
 
           yield* prepareBox(homeOf('pod'))
-          yield* runGit(['init', '--quiet', integrationRepositoryUrl])
+          yield* runGit([
+            'init',
+            '--quiet',
+            path.join(temporaryDirectory, 'hapana-gh-git', 'hapana-hub', 'hapana-gcp.git'),
+          ])
           yield* commitToConfigSource(
             sourceDirectory,
             {
@@ -667,7 +693,9 @@ describe('pie pod up', () => {
             'origin',
           ])
 
-          expect(Str.trim(clonedRemoteUrl)).toBe(integrationRepositoryUrl)
+          expect(Str.trim(clonedRemoteUrl)).toBe(
+            'https://hapana-gh-git.int.exe.xyz/hapana-hub/hapana-gcp.git',
+          )
           expect([configRepositoryFailure, recipeRepositoryFailure]).toMatchObject([
             {
               repositoryName: 'jliocsar/missing',
@@ -684,6 +712,30 @@ describe('pie pod up', () => {
           expect(recipeRepositoryFailure.message).toContain(
             'check that the hapana-gh-git integration is attached to tag:pie-recipe-personal',
           )
+        }),
+      ),
+    ))
+})
+
+describe('pie pod up on a box without mise', () => {
+  test('downloads the installer and runs it before installing the tools', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { miseCallsOn, runPieOn, sourceDirectory } = yield* startPods(temporaryDirectory)
+
+          yield* commitToConfigSource(
+            sourceDirectory,
+            { 'recipes/personal.toml': 'label = "Personal"\nenvironment = "personal"\n' },
+            [],
+          )
+          yield* runPieOn('fresh-box', ['pod', 'up', CONFIG_REPOSITORY])
+
+          expect(miseCallsOn('fresh-box')).toEqual([
+            'curl -fsSL https://mise.run -o <temporary>/install-mise.sh',
+            'sh <temporary>/install-mise.sh',
+            ...TOOL_AND_TASK_CALLS,
+          ])
         }),
       ),
     ))

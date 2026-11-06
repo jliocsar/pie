@@ -13,11 +13,6 @@ type CommandLine = readonly [command: string, ...commandArguments: string[]]
 
 type Environment = Record.ReadonlyRecord<string, string>
 
-interface InheritedRun {
-  readonly workingDirectory: string
-  readonly environment: Environment
-}
-
 export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
   commandLine: Schema.Array(Schema.String),
   exitCode: Schema.Int,
@@ -63,15 +58,13 @@ export class Process extends Context.Service<Process>()('pie/Process', {
 
     const inherit = Effect.fn('Process.inherit')(function* (
       commandLine: CommandLine,
-      { workingDirectory, environment }: InheritedRun,
+      workingDirectory: string,
     ) {
       const [command, ...commandArguments] = commandLine
       yield* spawner
         .exitCode(
           ChildProcess.make(command, commandArguments, {
             cwd: workingDirectory,
-            extendEnv: true,
-            env: environment,
             stdin: 'ignore',
             stdout: 'inherit',
             stderr: 'inherit',

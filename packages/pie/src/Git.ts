@@ -8,11 +8,11 @@ import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
 import { type Repository, RepositoryName } from './ConfigRepo.ts'
 import {
-  ExeDev,
   GITHUB_INTEGRATION,
   POD_TAG,
   RECIPE_TAG_PREFIX,
   type RecipeName,
+  repositoryUrlOf,
 } from './ExeDev.ts'
 import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Pod.ts'
 import { Process } from './Process.ts'
@@ -69,7 +69,6 @@ export class Git extends Context.Service<Git>()('pie/Git', {
     const path = yield* Path.Path
     const processes = yield* Process
     const box = yield* Box
-    const exeDev = yield* ExeDev
     const rememberedPath = path.join(
       box.paths.pieConfigDirectory,
       REMEMBERED_CONFIG_REPOSITORY_FILE_NAME,
@@ -141,7 +140,7 @@ export class Git extends Context.Service<Git>()('pie/Git', {
         yield* runGit([
           'clone',
           '--quiet',
-          `${exeDev.integrationUrl(GITHUB_INTEGRATION)}/${repositoryName}.git`,
+          repositoryUrlOf(GITHUB_INTEGRATION, repositoryName),
           checkoutDirectory,
         ]).pipe(failAsUnreachable(route))
       }
@@ -164,7 +163,7 @@ export class Git extends Context.Service<Git>()('pie/Git', {
       yield* runGit([
         'clone',
         '--quiet',
-        `${exeDev.integrationUrl(repository.integration)}/${repository.repo}.git`,
+        repositoryUrlOf(repository.integration, repository.repo),
         checkoutPath,
       ]).pipe(
         failAsUnreachable({
