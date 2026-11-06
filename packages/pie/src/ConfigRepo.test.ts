@@ -187,9 +187,8 @@ describe('loadConfig', () => {
         expect(config.recipes['personal']).toMatchObject({
           tags: [],
           repositories: [],
-          mcp: {},
           home: [],
-          claude: { files: [], settings: {}, claude_md: [] },
+          claude: { files: [], settings: {}, mcpServers: {}, claude_md: [] },
         })
       }),
     ))

@@ -6,7 +6,7 @@ import * as Schema from 'effect/Schema'
 import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
-import { Claude, claudeConfigOf } from '../Claude.ts'
+import { Claude } from '../Claude.ts'
 import { ConfigRepo, configFilePathOf, RepositoryName } from '../ConfigRepo.ts'
 import { ExeDev, RecipeName, recipeNameOf } from '../ExeDev.ts'
 import { Git } from '../Git.ts'
@@ -67,18 +67,14 @@ export const pod = Command.make('pod').pipe(
 
         yield* exeDev.requireRecipeTags(recipeName, recipe.tags, vmTags)
 
-        const claudeConfig = claudeConfigOf(recipe)
-        const claudeState = yield* claude.readState()
-        const previousHomeManifest = yield* homeSets.readManifest()
+        const claudePlan = yield* claude.prepare(recipeName, repositoryName, recipe.claude)
+        const homeSetsPlan = yield* homeSets.prepare(recipe.home)
 
-        yield* claude.failOnForeign(claudeConfig, claudeState)
-        yield* homeSets.failOnForeign(recipe.home, previousHomeManifest)
         yield* mise.install(recipe.environment)
-        yield* homeSets.apply(recipe.home, previousHomeManifest)
+        yield* homeSetsPlan.apply
         yield* mise.runTasks(recipe.tasks)
         yield* git.cloneMissingRepositories(recipeName, recipe.repositories)
-        yield* claude.apply(claudeConfig, claudeState)
-        yield* claude.writeInstructions(recipeName, repositoryName, recipe.claude.claude_md)
+        yield* claudePlan.apply
         yield* Console.log(
           `Applied recipe ${recipeName} at config commit ${commit.slice(0, COMMIT_ABBREVIATION_LENGTH)}.`,
         )

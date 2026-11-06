@@ -465,6 +465,10 @@ already exists without that fails `pod up` before anything changes, and so does 
 of the same name that pie didn't add. The manifest records the union of old and new before any
 write, so a run that dies halfway never leaves pie's own files looking like someone else's.
 
+Claude and the home sets each prepare before anything changes: reading their state and refusing
+what isn't pie's, then handing back a plan holding the only way to apply. So no caller can apply
+without the refusal, or carry their state between the two steps.
+
 The home sets' manifest and Claude's go through that one protocol: the union before any change,
 the final manifest after. What happens in between keeps each one's own order. Home sets remove
 stale files before writing, since a file switching from copy to append would otherwise get its

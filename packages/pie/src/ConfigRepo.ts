@@ -893,10 +893,10 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     tasks,
     repositories: recipe.repositories,
     home: homeFiles,
-    mcp: mcpServers,
     claude: {
       files: [...agentFiles, ...Arr.flatten(skillFiles)],
       settings: claudeSettings,
+      mcpServers,
       claude_md: claudeMdTexts,
     },
   }

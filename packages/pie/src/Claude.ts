@@ -27,6 +27,8 @@ import {
   withBlock,
 } from './Box.ts'
 
+type ClaudeConfig = ResolvedRecipe['claude']
+
 interface ClaudeState {
   readonly previousManifest: Manifest
   readonly claudeMcpNames: readonly string[]
@@ -76,14 +78,6 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
   }
 }
 
-export const claudeConfigOf = (recipe: ResolvedRecipe) => ({
-  files: recipe.claude.files,
-  settings: recipe.claude.settings,
-  mcpServers: recipe.mcp,
-})
-
-type ClaudeConfig = ReturnType<typeof claudeConfigOf>
-
 const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
   Arr.map(claudeConfig.files, (claudeFile) => claudeFile.claudePath)
 
@@ -115,12 +109,8 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
     const readState = Effect.fn('Claude.readState')(function* () {
       const previousManifest = yield* box.readJsonFile(ManifestJson, manifestPath, EMPTY_MANIFEST)
       const claudeState = yield* box.readJsonFile(ClaudeStateJson, box.paths.claudeState, {})
-      const state: ClaudeState = {
-        previousManifest,
-        claudeMcpNames: Record.keys(claudeState.mcpServers ?? {}),
-      }
 
-      return state
+      return { previousManifest, claudeMcpNames: Record.keys(claudeState.mcpServers ?? {}) }
     })
 
     const failOnForeign = Effect.fn('Claude.failOnForeign')(function* (
@@ -247,7 +237,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       yield* box.writeFileIfChanged(settingsPath, `${settingsText}\n`, REGULAR_FILE_MODE)
     })
 
-    const apply = Effect.fn('Claude.apply')(function* (
+    const applyFiles = Effect.fn('Claude.applyFiles')(function* (
       claudeConfig: ClaudeConfig,
       claudeState: ClaudeState,
     ) {
@@ -311,7 +301,23 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       )
     })
 
-    return { readState, failOnForeign, apply, writeInstructions }
+    const prepare = Effect.fn('Claude.prepare')(function* (
+      recipeName: RecipeName,
+      configRepository: RepositoryName,
+      claudeConfig: ClaudeConfig,
+    ) {
+      const claudeState = yield* readState()
+
+      yield* failOnForeign(claudeConfig, claudeState)
+
+      return {
+        apply: applyFiles(claudeConfig, claudeState).pipe(
+          Effect.andThen(writeInstructions(recipeName, configRepository, claudeConfig.claude_md)),
+        ),
+      }
+    })
+
+    return { prepare }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

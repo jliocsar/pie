@@ -167,7 +167,15 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
       )
     })
 
-    return { readManifest, failOnForeign, apply }
+    const prepare = Effect.fn('HomeSets.prepare')(function* (homeFiles: readonly HomeFile[]) {
+      const previousHomeManifest = yield* readManifest()
+
+      yield* failOnForeign(homeFiles, previousHomeManifest)
+
+      return { apply: apply(homeFiles, previousHomeManifest) }
+    })
+
+    return { prepare }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
