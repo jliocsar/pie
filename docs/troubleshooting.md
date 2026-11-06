@@ -29,18 +29,19 @@ An MCP server that fails inside Claude, with nothing from pie, usually needs an 
 
 These show up in `pie check` and in `pod up`.
 
-| Error says                                      | Fix                                                                          |
-| ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| X doesn't parse                                 | Fix the TOML or JSON syntax it points at.                                    |
-| X is invalid                                    | A key or value is wrong. The message names the path, like `["tags"][0]`.     |
-| X lists Y "Z", but … doesn't exist              | Add the file, or fix the name.                                               |
-| X is named "A", but its path names it "B"       | Make the frontmatter `name` match the file or directory.                     |
-| X has no frontmatter                            | Start the file with a `---` block holding at least `name` and `description`. |
-| X extends itself through …                      | Break the `extends` cycle.                                                   |
-| X can't name a recipe                           | Rename the recipe file using only `a-z`, `0-9`, `_` and `-`.                 |
-| X would land on ~/Y, which pie writes itself    | Move it out of the home set. Claude config goes through the recipe.          |
-| X copies ~/Y … it can only be appended to       | List the set as `{ name = "…", mode = "append" }`.                           |
-| X lists home sets A and B, which both write ~/Y | Make both sets append, or move the file into one.                            |
+| Error says                                      | Fix                                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| X doesn't parse                                 | Fix the TOML or JSON syntax it points at.                                          |
+| X is invalid                                    | A key or value is wrong. The message names the path, like `["tags"][0]`.           |
+| X lists Y "Z", but … doesn't exist              | Add the file, or fix the name.                                                     |
+| X is named "A", but its path names it "B"       | Make the frontmatter `name` match the file or directory.                           |
+| X doesn't exist, and a skill needs it           | Add `SKILL.md` with `name` and `description` frontmatter, or remove the directory. |
+| X has no frontmatter                            | Start the file with a `---` block holding at least `name` and `description`.       |
+| X extends itself through …                      | Break the `extends` cycle.                                                         |
+| X can't name a recipe                           | Rename the recipe file using only `a-z`, `0-9`, `_` and `-`.                       |
+| X would land on ~/Y, which pie writes itself    | Move it out of the home set. Claude config goes through the recipe.                |
+| X copies ~/Y … it can only be appended to       | List the set as `{ name = "…", mode = "append" }`.                                 |
+| X lists home sets A and B, which both write ~/Y | Make both sets append, or move the file into one.                                  |
 
 Only `pie check` reports these:
 

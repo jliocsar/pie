@@ -413,6 +413,14 @@ export class FrontmatterMissing extends Schema.TaggedError<FrontmatterMissing>()
   }
 }
 
+export class SkillFileMissing extends Schema.TaggedError<SkillFileMissing>()('SkillFileMissing', {
+  filePath: Schema.String,
+}) {
+  override get message(): string {
+    return `${this.filePath} doesn't exist, and a skill needs it. Add it with name and description frontmatter, or remove the directory.`
+  }
+}
+
 export class ConfigFileInvalid extends Schema.TaggedError<ConfigFileInvalid>()(
   'ConfigFileInvalid',
   {
@@ -662,7 +670,14 @@ const loadAgent = Effect.fn('loadAgent')(function* (configDirectory: string, age
 })
 
 const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, skillName: string) {
+  const fileSystem = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
   const filePath = configFilePathOf('skill', skillName)
+
+  if (!(yield* fileSystem.exists(path.join(configDirectory, filePath)))) {
+    return yield* new SkillFileMissing({ filePath })
+  }
+
   const frontmatter = yield* extractFrontmatter(
     filePath,
     yield* readConfigText(configDirectory, filePath),

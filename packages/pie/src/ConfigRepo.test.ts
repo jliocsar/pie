@@ -17,6 +17,7 @@ import {
   HomePathPieOwned,
   HomePathsOverlap,
   RecipeNameNotTaggable,
+  SkillFileMissing,
 } from './ConfigRepo.ts'
 import { inFreshDirectory, writeFilesUnder } from './test/TestPie.ts'
 
@@ -419,6 +420,12 @@ describe('loadConfig', () => {
       overrides: { 'recipes/Work.toml': RECIPE_TOML },
       errorClass: RecipeNameNotTaggable,
       filePath: 'recipes/Work.toml',
+    },
+    {
+      description: 'a skill directory without a SKILL.md',
+      overrides: { 'skills/notes/reference.md': 'Notes\n' },
+      errorClass: SkillFileMissing,
+      filePath: 'skills/notes/SKILL.md',
     },
     {
       description: 'a skill without frontmatter',
