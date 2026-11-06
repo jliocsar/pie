@@ -240,10 +240,12 @@ Type-only imports are exempt.
 :::
 
 :::warning
-Never read `_tag`. The `_` prefix means private. Use `Match.tag`/`Match.tags`/`Match.tagsExhaustive`,
-a library guard (`Cause.isTimeoutError`, `Exit.isFailure`, `Result.isFailure`), or `instanceof` where
-the module instance is shared. Prefer exhaustive so a new variant fails to compile.
-Enforced: `begone-slop/no-tag-access`.
+Never read `_tag`. A read keeps compiling when a variant is added, so the new case goes unhandled.
+Use `Match.tagsExhaustive`, so a new variant fails to compile, then `Match.tag`/`Match.tags`, a library
+guard (`Cause.isTimeoutError`, `Exit.isFailure`, `Result.isFailure`), or `instanceof` where the module
+instance is shared. Privacy isn't the argument: Effect declares `_tag` as a schema field and reads it
+in its own docs. `Match.orElse` gives up exhaustiveness as well, so reach for it only where a new
+variant really belongs in the fallback. Enforced: `begone-slop/no-tag-access`.
 
 Nested `reason` unions too — `SqlError`/`AiError` put the variant in `reason`, out of the failure
 channel, so `catchTag` misses it and some `effect-best-practices` snippets write `error.reason._tag`.
