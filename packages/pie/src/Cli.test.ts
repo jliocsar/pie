@@ -35,6 +35,10 @@ import {
   writeFilesUnder,
 } from './test/TestPie.ts'
 
+interface RunOptions {
+  readonly failingRun?: string
+}
+
 interface RecordedRun {
   readonly machineName: string
   readonly commandLine: string
@@ -119,7 +123,7 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       `url.${path.join(temporaryDirectory, integrationName)}/.insteadOf=https://${integrationName}.int.exe.xyz/`,
     ],
   )
-  const spawnerOn = (machineName: string) =>
+  const spawnerOn = (machineName: string, { failingRun }: RunOptions) =>
     ChildProcessSpawner.make((command) => {
       if (!ChildProcess.isStandardCommand(command)) {
         return realSpawner.spawn(command)
@@ -132,17 +136,14 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       }
 
       const miseBinary = path.join(homeOf(machineName), '.local', 'bin', 'mise')
+      const commandLine = (
+        command.command === miseBinary ? command.args : [command.command, ...command.args]
+      ).join(' ')
+      const runFails = failingRun !== undefined && commandLine.includes(failingRun)
 
-      recordedRuns.push({
-        machineName,
-        commandLine: (command.command === miseBinary
-          ? command.args
-          : [command.command, ...command.args]
-        ).join(' '),
-        workingDirectory: command.options.cwd,
-      })
+      recordedRuns.push({ machineName, commandLine, workingDirectory: command.options.cwd })
 
-      return realSpawner.spawn(ChildProcess.make('true', [], command.options))
+      return realSpawner.spawn(ChildProcess.make(runFails ? 'false' : 'true', [], command.options))
     })
   const recordedRunsOn = (machineName: string) =>
     Arr.filter(recordedRuns, (recordedRun) => recordedRun.machineName === machineName)
@@ -154,10 +155,14 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
     machineName: string,
     commandLine: readonly string[],
     vmTags: readonly string[] = PERSONAL_POD_TAGS,
+    runOptions: RunOptions = {},
   ) =>
     Command.runWith(pie, { version: '0.0.0-test' })(commandLine).pipe(
       Effect.provideService(FetchHttpClient.Fetch, reflectionAnswering(machineName, vmTags)),
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawnerOn(machineName)),
+      Effect.provideService(
+        ChildProcessSpawner.ChildProcessSpawner,
+        spawnerOn(machineName, runOptions),
+      ),
       Effect.provideService(Console.Console, output.console),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
@@ -495,6 +500,35 @@ describe('pie pod up', () => {
             ...TOOL_AND_TASK_CALLS,
             ...MCP_ADD_CALLS,
             ...TOOL_AND_TASK_CALLS,
+            'exec -- claude mcp remove --scope user docs',
+            'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/v2"}',
+          ])
+        }),
+      ),
+    ))
+
+  test('a run dying while re-adding an edited MCP server adds it again on the next run', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, miseCallsOn, runPieOn, sourceDirectory } =
+            yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+
+          yield* prepareBox(home)
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* writeClaudeState(home, ['fff', 'docs'])
+          yield* commitToConfigSource(
+            sourceDirectory,
+            { 'mcp/docs.toml': 'url = "https://docs.example/v2"\n' },
+            [],
+          )
+          yield* Effect.flip(
+            runPieOn('pod', ['pod', 'up'], PERSONAL_POD_TAGS, { failingRun: 'add-json' }),
+          )
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          expect(Arr.takeRight(miseCallsOn('pod'), 2)).toEqual([
             'exec -- claude mcp remove --scope user docs',
             'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/v2"}',
           ])

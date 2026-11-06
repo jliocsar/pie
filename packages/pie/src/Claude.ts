@@ -245,7 +245,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
               previousManifest.claudeSettingsKeys,
               Record.keys(claudeConfig.settings),
             ),
-            mcpServers: { ...previousManifest.mcpServers, ...claudeConfig.mcpServers },
+            mcpServers: { ...claudeConfig.mcpServers, ...previousManifest.mcpServers },
           },
           final: {
             claudeFiles: claudeFilePaths,
