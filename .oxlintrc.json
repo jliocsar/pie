@@ -6,6 +6,8 @@
   "extends": [
     "./node_modules/@effect/tsgo/oxlint-presets/recommended.json",
     "./node_modules/@effect/tsgo/oxlint-presets/effect-native.json",
+    "./node_modules/@effect/tsgo/oxlint-presets/correctness.json",
+    "./node_modules/@effect/tsgo/oxlint-presets/antipattern.json",
     "./node_modules/@jliocsar/begone-slop/preset.json"
   ],
 
@@ -115,9 +117,7 @@
         "max-lines": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-confusing-void-expression": "off",
-        "typescript/no-unnecessary-type-conversion": "off",
-        // Every test is its own entry point, which is where the rule wants layers provided.
-        "effecttsgo/strict-effect-provide": "off"
+        "typescript/no-unnecessary-type-conversion": "off"
       }
     }
   ]

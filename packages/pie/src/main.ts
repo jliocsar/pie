@@ -20,7 +20,6 @@ const reportFailure = <Failure extends { readonly message: string }>(cause: Caus
 BunRuntime.runMain(
   Command.run(pie, { version: packageJson.version }).pipe(
     Effect.tapCause(reportFailure),
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide
     Effect.provide(BunServices.layer),
   ),
   { disableErrorReporting: true },
