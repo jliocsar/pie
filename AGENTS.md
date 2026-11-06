@@ -603,4 +603,51 @@ The description documents the change, nothing else:
 
 - The summary is plain prose at the very top — no heading above it, no `### Summary`. The PR title
   is already rendered; do not restate it.
-- Smallest heading allowed is `###`, and only w
+- Smallest heading allowed is `###`, and only when the description genuinely splits into sections.
+  Never `#` or `##`.
+- Prefer a code snippet to a paragraph. A ` ```ts ` or ` ```diff ` block showing the new shape beats
+  prose describing it; add prose only for the "why" a snippet cannot carry.
+- Cut anything that restates the diff, and anything that reads like marketing.
+- **Never** a "Test plan", "Testing", or TODO checklist. Skip examples entirely for trivial fixes,
+  internal refactors and doc-only changes.
+
+Outstanding work, manual verification or review items do NOT go in the description or a comment.
+Mark the PR **draft** and say what is outstanding in the chat that asked for it.
+
+:::warning
+Write the body to a file and pass `--body-file`; never inline it:
+
+```sh
+gh pr create --body-file tmp/pr-body.md   # write it with Write, not a heredoc
+```
+
+`--body "$(cat <<'EOF' … EOF)"` mangles backticks and backslashes in some shell/`gh` combinations —
+inline code spans arrive as literal `` \` ``. `--body-file` sidesteps shell quoting entirely. If
+`gh pr edit --body-file` silently no-ops on an older `gh`, fall back to
+`gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@tmp/pr-body.md`.
+:::
+
+## Changing this file
+
+Where review feedback gets settled once instead of repeated.
+
+Trigger: repetition, or obvious generality. Asked twice = already a pattern, codify then. A first
+request that is plainly general (`never read _tag` is about every file) gets promoted immediately.
+
+Strongest enforcement available, in order:
+
+1. An oxlint rule — machine-checked, cannot drift, often auto-fixable. Prefer a built-in; add a
+   `begone-slop` rule, in its own repo and with its own tests, only when oxlint has none.
+2. A line here — every agent reads it, but prose can be misread. A one-off measured fact goes here
+   too, stated as a fact rather than a rule. Never a comment; `no-comments` rejects one.
+
+Codify in the same change as the fix, never "later"; a pattern living only in a conversation dies
+with the session.
+
+:::warning
+Rules are not immutable. When the user contradicts one, fix the rule — do not special-case the call
+site. `expect-padding` was built from a misread brief and had to be inverted; that was a bug in the
+rule, not licence for an exception.
+:::
+
+Do not over-codify. A preference about one file, or a judgement needing taste, is not a pattern.
