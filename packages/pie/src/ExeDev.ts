@@ -9,16 +9,16 @@ import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
 
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
 const INTEGRATION_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u
+const RECIPE_TAG_PREFIX = 'pie-recipe-'
 
 export const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
 export const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 export const POD_TAG = 'pie'
-export const RECIPE_TAG_PREFIX = 'pie-recipe-'
 
 const VmIndex = Schema.Struct({ name: Schema.String })
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
 
-export const TagName = Schema.String.check(
+const TagName = Schema.String.check(
   Schema.isPattern(TAG_PATTERN, { message: 'An exe.dev tag uses only a-z, 0-9, _ and -.' }),
 )
 

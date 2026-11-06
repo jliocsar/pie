@@ -169,7 +169,7 @@ const ToolRequestTable = Schema.StructWithRest(Schema.Struct({ version: Schema.S
   Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Int, Schema.Boolean])),
 ])
 
-export const ToolRequest = Schema.Union([
+const ToolRequest = Schema.Union([
   Schema.String.pipe(
     Schema.decodeTo(
       ToolRequestTable,
@@ -225,7 +225,7 @@ const RepositoryCheckout = Schema.Struct({
   integration: IntegrationName,
 })
 
-export const Repository = Schema.Union([
+const Repository = Schema.Union([
   RepositoryName.pipe(
     Schema.decodeTo(
       Schema.toType(RepositoryTable),
@@ -259,7 +259,7 @@ const HomeSetTable = Schema.Struct({
   mode: Schema.Literals(['copy', 'append']),
 })
 
-export const HomeSet = Schema.Union([
+const HomeSet = Schema.Union([
   HomeName.pipe(
     Schema.decodeTo(
       HomeSetTable,
@@ -272,7 +272,7 @@ export const HomeSet = Schema.Union([
   HomeSetTable,
 ])
 
-export type HomeSet = typeof HomeSet.Type
+type HomeSet = typeof HomeSet.Type
 
 const ClaudeRecipe = Schema.Struct({
   agents: namesOf('agent'),
@@ -333,12 +333,10 @@ export const McpServerFile = Schema.Union([
 
 export type McpServer = typeof McpServer.Type
 
-export const Frontmatter = Schema.Struct({
+const Frontmatter = Schema.Struct({
   name: Schema.NonEmptyString,
   description: Schema.String,
 })
-
-export type Frontmatter = typeof Frontmatter.Type
 
 export const ClaudeSettings = Schema.Record(Schema.String, Schema.Unknown)
 

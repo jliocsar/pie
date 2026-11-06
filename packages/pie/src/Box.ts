@@ -245,7 +245,6 @@ export class Box extends Context.Service<Box>()('pie/Box', {
       writeFileIfChanged,
       updateTextFile,
       readJsonFile,
-      writeJsonFile,
       failIfPresent,
       writeOwned,
     }
