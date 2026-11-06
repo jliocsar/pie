@@ -6,7 +6,7 @@
       "name": "boilerplate-monorepo",
       "devDependencies": {
         "@effect/tsgo": "0.67.4",
-        "@jliocsar/begone-slop": "^0.2.11",
+        "@jliocsar/begone-slop": "^0.2.12",
         "@types/bun": "^1.3.14",
         "effect": "catalog:",
         "oxfmt": "^0.76.0",
@@ -58,7 +58,7 @@
 
     "@effect/tsgo-win32-x64": ["@effect/tsgo-win32-x64@0.67.4", "", { "os": "win32", "cpu": "x64" }, "sha512-kRuQnXwZNDvOMpFSfd0+lMNVk7+61jRXkhcJ4b1sfdaJXmkRQeinLZlJAIl/CQPm/g3mdPId5f0PrbZZfzGIyg=="],
 
-    "@jliocsar/begone-slop": ["@jliocsar/begone-slop@0.2.11", "", { "dependencies": { "@oxlint/plugins": "^1.86.0" }, "peerDependencies": { "oxlint": ">=1.77.0" } }, "sha512-h6vozSapFUk1IJgs/wfiMo5ijGmbi9M4xfa9cGIuApc8cTlzXT7KIFT7cB3yFkghrrW2nZ8ZSpKxllQeGpWIwQ=="],
+    "@jliocsar/begone-slop": ["@jliocsar/begone-slop@0.2.12", "", { "dependencies": { "@oxlint/plugins": "^1.91.0" }, "peerDependencies": { "oxlint": ">=1.77.0" } }, "sha512-VA9otore/bmHhd3s78YE4cP79NVG+oEJpjYGmcodksWsGQRtxdumf0wW3TtgjELWnWhOr+DB1VDRi1Y4e99oXA=="],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.76.0", "", { "os": "android", "cpu": "arm" }, "sha512-z8x4kittQLPsrJWmfoIJyYqs2gNwceGShoUqAJdFRPw3K4kkkKCFHh3Cr4NFRvZb7DPfDS3+JfBjSm3OIyQaJQ=="],
 
@@ -148,7 +148,7 @@
 
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.91.0", "", { "os": "win32", "cpu": "x64" }, "sha512-DmpK0PthG66Bcz5Y4JqNbzXltzyLQtg3ofYpd25+ejm7kQYUM78VL1uIP/ZFct2781mwUyBX37LatFPCTVp35A=="],
 
-    "@oxlint/plugins": ["@oxlint/plugins@1.86.0", "", {}, "sha512-JeAiaaRMyUiUEQHQ7zBsJn1aEdbLyt1HJsOs4XKIIlATNxcvWRrRxneZA+RF4G03cQobq3IhTqSfyLhOFv03qA=="],
+    "@oxlint/plugins": ["@oxlint/plugins@1.92.0", "", {}, "sha512-+8wfampUIDYgvWX+QOd4RFk0fTLCquBnkCSdb9MiK+H0BaFQtgq445s+yJnb5/qjjyaWGfX4j7yJOdijXv79qg=="],
 
     "@pie/cli": ["@pie/cli@workspace:packages/pie"],
 

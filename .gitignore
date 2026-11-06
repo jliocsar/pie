@@ -26,3 +26,6 @@ dist-ssr
 # Temp files
 tmp/
 *.tsbuildinfo
+
+# Agent worktrees: lint and fmt would walk into them
+.claude/worktrees/
