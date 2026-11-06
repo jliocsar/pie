@@ -5,7 +5,7 @@ import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
 import * as Result from 'effect/Result'
 import * as Runtime from 'effect/Runtime'
-import * as Command from 'effect/unstable/cli/Command'
+import * as Command from 'effect/cli/Command'
 import packageJson from '../package.json' with { type: 'json' }
 import { pie } from './Cli.ts'
 

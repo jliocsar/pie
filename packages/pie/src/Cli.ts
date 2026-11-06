@@ -1,4 +1,4 @@
-import * as Command from 'effect/unstable/cli/Command'
+import * as Command from 'effect/cli/Command'
 import { check } from './commands/Check.ts'
 import { pod } from './commands/Pod.ts'
 import { sync } from './commands/Sync.ts'

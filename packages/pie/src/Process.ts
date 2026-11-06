@@ -6,8 +6,8 @@ import type * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Stream from 'effect/Stream'
 import * as Str from 'effect/String'
-import * as ChildProcess from 'effect/unstable/process/ChildProcess'
-import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
+import * as ChildProcess from 'effect/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/process/ChildProcessSpawner'
 
 type CommandLine = readonly [command: string, ...commandArguments: string[]]
 

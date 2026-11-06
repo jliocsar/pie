@@ -7,7 +7,15 @@
       {
         "name": "@effect/language-service",
         "diagnostics": false,
-        "brandedSchemaClasses": ["Class", "Error", "Opaque"]
+        "brandedSchemaClasses": ["Class", "Error", "Opaque"],
+        "allowedUnstableApis": [
+          "@effect/platform-bun",
+          "effect/FileSystem",
+          "effect/Path",
+          "effect/cli",
+          "effect/http",
+          "effect/process"
+        ]
       }
     ]
   }

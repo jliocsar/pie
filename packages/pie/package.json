@@ -10,8 +10,8 @@
     "build": "bun build src/main.ts --compile --target=bun-linux-x64-baseline --outfile ../../dist/pie-linux-x64 && bun build src/main.ts --compile --target=bun-linux-arm64 --outfile ../../dist/pie-linux-arm64"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.117",
-    "effect": "4.0.0-rc.117"
+    "@effect/platform-bun": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@boilerplate/tsconfig": "workspace:*"

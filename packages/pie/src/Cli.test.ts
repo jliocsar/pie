@@ -12,11 +12,11 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
-import * as CliError from 'effect/unstable/cli/CliError'
-import * as Command from 'effect/unstable/cli/Command'
-import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
-import * as ChildProcess from 'effect/unstable/process/ChildProcess'
-import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
+import * as CliError from 'effect/cli/CliError'
+import * as Command from 'effect/cli/Command'
+import * as FetchHttpClient from 'effect/http/FetchHttpClient'
+import * as ChildProcess from 'effect/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/process/ChildProcessSpawner'
 import { pie } from './Cli.ts'
 import { ConfigReferenceMissing } from './ConfigRepo.ts'
 import { SchemaFileStale, SchemaLineMissing } from './EditorSchemas.ts'
@@ -148,8 +148,9 @@ const startPods = Effect.fn('startPods')(function* (temporaryDirectory: string) 
       }
 
       const miseBinary = path.join(homeOf(machineName), '.local', 'bin', 'mise')
-      const commandLine = (
-        command.command === miseBinary ? command.args : [command.command, ...command.args]
+      const commandLine = Arr.map(
+        command.command === miseBinary ? command.args : [command.command, ...command.args],
+        String,
       ).join(' ')
       const runFails = failingRun !== undefined && commandLine.includes(failingRun)
 

@@ -25,16 +25,16 @@
   "jsPlugins": ["@jliocsar/begone-slop"],
 
   "rules": {
-    // Leaf imports only. A barrel is the bare root, `effect/testing`, or a single
-    // lowercase segment under `unstable/` — every leaf module is PascalCase.
+    // Leaf imports only. A barrel is the bare root or a single lowercase segment
+    // under it — every leaf module is PascalCase.
     "no-restricted-imports": [
       "error",
       {
         "patterns": [
           {
-            "regex": "^effect$|^effect/testing$|^effect/unstable/[a-z0-9-]+$",
+            "regex": "^effect(/[a-z][a-z0-9-]*)?$",
             "allowTypeImports": true,
-            "message": "Import the leaf module, not the barrel: `effect/Effect`, `effect/unstable/schema/Schema`."
+            "message": "Import the leaf module, not the barrel: `effect/Effect`, `effect/Schema`."
           }
         ]
       }

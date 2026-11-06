@@ -1,8 +1,8 @@
 import * as Console from 'effect/Console'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
-import * as Argument from 'effect/unstable/cli/Argument'
-import * as Command from 'effect/unstable/cli/Command'
+import * as Argument from 'effect/cli/Argument'
+import * as Command from 'effect/cli/Command'
 import { ConfigRepo } from '../ConfigRepo.ts'
 import { EditorSchemas } from '../EditorSchemas.ts'
 

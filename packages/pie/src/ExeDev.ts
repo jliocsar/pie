@@ -4,8 +4,8 @@ import * as Effect from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import * as Layer from 'effect/Layer'
 import * as Schema from 'effect/Schema'
-import * as HttpClient from 'effect/unstable/http/HttpClient'
-import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse'
+import * as HttpClient from 'effect/http/HttpClient'
+import * as HttpClientResponse from 'effect/http/HttpClientResponse'
 
 const TAG_PATTERN = /^[a-z0-9_-]+$/u
 const INTEGRATION_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u

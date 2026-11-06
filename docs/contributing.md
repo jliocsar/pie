@@ -8,13 +8,13 @@ pie is an Effect v4 TypeScript monorepo. The `pie` binary is `packages/pie`, com
 
 Everything is oxc + TypeScript 7. No ESLint, no dprint, no Prettier.
 
-| Tool                                                                                                             | Job                                          |
-| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| [oxlint](https://oxc.rs)                                                                                         | Lint, including the type-aware pass          |
-| [oxfmt](https://oxc.rs)                                                                                          | Format                                       |
-| [typescript@7](https://github.com/microsoft/typescript-go) + [`@effect/tsgo`](https://github.com/Effect-TS/tsgo) | Typecheck, and 81 Effect-specific lint rules |
-| [`@jliocsar/begone-slop`](https://github.com/jliocsar/begone-slop)                                               | The house lint rules                         |
-| [Bun](https://bun.sh)                                                                                            | Runtime, package manager, test runner        |
+| Tool                                                                                                             | Job                                           |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| [oxlint](https://oxc.rs)                                                                                         | Lint, including the type-aware pass           |
+| [oxfmt](https://oxc.rs)                                                                                          | Format                                        |
+| [typescript@7](https://github.com/microsoft/typescript-go) + [`@effect/tsgo`](https://github.com/Effect-TS/tsgo) | Typecheck, and the Effect-specific lint rules |
+| [`@jliocsar/begone-slop`](https://github.com/jliocsar/begone-slop)                                               | The house lint rules                          |
+| [Bun](https://bun.sh)                                                                                            | Runtime, package manager, test runner         |
 
 ## Getting started
 
@@ -48,7 +48,7 @@ Every member with source needs a `test` script: the gate runs `bun run --filter 
 
 Beyond oxlint's `correctness`, `suspicious` and `pedantic` categories and the `effecttsgo` preset:
 
-- **Leaf imports only.** `effect/Effect`, not `effect`; `effect/unstable/schema/Schema`, not `effect/unstable/schema`.
+- **Leaf imports only.** `effect/Effect`, not `effect`; `effect/cli/Command`, not `effect/cli`.
 - **`begone-slop/no-tag-access`**: never read `_tag`. Use `Match.tag`/`Match.tags`/`Match.tagsExhaustive` or a library guard, so a new variant fails to compile instead of falling through.
 - **`begone-slop/no-shadowed-error-field`**: no `name`/`stack` field on a tagged error, which would overwrite what identifies the error as an error.
 - **`begone-slop/no-comments`**: a name needing a sentence beside it is the wrong name, and durable knowledge belongs in `AGENTS.md`. `SAFETY:` comments and tooling directives are exempt.

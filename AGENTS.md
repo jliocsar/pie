@@ -33,9 +33,15 @@ The few tsgo rules that are off say why beside themselves in `.oxlintrc.json`. T
 their quickfixes write what begone-slop rejects: a map to `undefined` becomes `Effect.asVoid`, and a
 catch returning `Effect.void` becomes a log-less `Effect.ignore`.
 
+`unstable-api-usage` stays on, and the language-service plugin block allow-lists the `@stability
+unstable` modules pie is built from: `effect/FileSystem`, `effect/Path`, `effect/cli`, `effect/http`,
+`effect/process` and `@effect/platform-bun`. A CLI has no stable replacement for them, so without the
+list the rule reports every use (measured: 110 reports on 4.1.2), and with it an unstable API from
+anywhere else still fails the gate. A new one goes on the list deliberately, or not at all.
+
 oxlint's `promise` rules decide whether `x.catch(…)` is a Promise call by looking at the receiver,
 and they treat a namespace import as one that might be a Promise. So `Effect.catch` and
-`Stream.catch` count as Promise chains (measured on oxlint 1.90.0). `prefer-await-to-then` reports
+`Stream.catch` count as Promise chains (measured on oxlint 1.91.0). `prefer-await-to-then` reports
 each one that isn't under a `yield` or an `await`, which is why it's off. `valid-params` is a
 correctness rule and stays on, but it rejects the data-first `Effect.catch(self, handler)` as a
 `Promise.catch()` with two arguments, so use the pipe form. Never rewrite a catch into something
@@ -66,9 +72,10 @@ bump the three together. tsgo 0.58 added `effect-tsgo oxlint` and `effect-tsgo t
 patched binaries without touching `node_modules`; pie still patches, since editors and plain `tsc`
 launch the stock binaries.
 
-Any reinstall reverts the patch, and `prepare` then refuses to redo it because its backups still
-exist — `Unknown plugin: 'effecttsgo'` is what that looks like. Run `bunx effect-tsgo unpatch
---oxlint` first, then `bun run prepare` (measured, twice).
+A reinstall reverts the patch and `prepare` redoes it: lint still ran the Effect rules after `bun
+install --force` (measured on tsgo 0.67.4). A toolchain bump still unpatches first, with `bunx
+effect-tsgo unpatch --oxlint`, since that restores the old build's binaries. `Unknown plugin:
+'effecttsgo'` is what a missing patch looks like.
 :::
 
 The git hooks are plain scripts in `.githooks`, and `prepare` points `core.hooksPath` at them. Husky
@@ -76,6 +83,13 @@ did nothing else pie used. Formatting, lint on staged files and the typecheck ru
 repo's lint, the format check and the tests run on push, so a commit stays quick. A Claude Code hook
 refuses the Bash commands that skip them. It drops quoted text first, so a commit message mentioning
 a flag passes.
+
+Installs wait three days for a new release, the value Effect's cafe repo uses, set in `bunfig.toml`.
+A version an exact pin asks for fails too, and a young optional package is skipped with no error: the
+exclude list had to name tsgo's and oxlint-tsgolint's platform binaries, or they silently went
+missing, and it takes no globs (all measured on Bun 1.4.4). A lockfile's entries aren't re-checked, so
+there's no exclude list: a bump you mean to make runs `bun install --minimum-release-age 0` once, and
+every later install reads the lockfile (measured).
 
 :::warning
 `typescript`, `oxlint`, `oxlint-tsgolint` AND `@effect/tsgo` itself are pinned EXACTLY (no `^`).
@@ -102,12 +116,14 @@ language-service plugin block, which the published base does not carry.
 
 ## Effect version
 
-Every Effect package is pinned EXACTLY to the same v4 release candidate. The beta line's platform
-packages depend on a caret range that resolves to the rc, so a beta pin installs a mixed tree that
-fails at import with a missing `effect/*` module (measured).
+Every Effect package takes its version from the one catalog in the root `package.json`, and members
+write `catalog:`, so a bump edits one place and the tree can't mix versions. The catalog pins EXACTLY.
+Effect 4 is stable, but that doesn't cover what pie is built from: `cli/Command`, `http/HttpClient` and
+the rest of those modules are tagged `@stability unstable`, and an unstable module can break in a
+minor release.
 
-The `effect-best-practices` skill predates the rc, and some names it uses were renamed since. Where
-the skill and `node_modules/effect/src` disagree, the source wins.
+The `effect-best-practices` skill can lag the pinned release, and some names it uses may have been
+renamed since. Where the skill and `node_modules/effect/src` disagree, the source wins.
 
 ## Releases
 
@@ -187,7 +203,7 @@ needs, and never read HOME. The entry point provides only the platform.
 
 Each layer used to provide its own dependencies, so whoever provided it saw only the service. That
 left the tests nothing to fake but the outside world, because a dependency provided inside a layer
-stays the one it gets even when a test provides another around it (measured). Effect's own janitor
+stays the one it gets even when a test provides another around it (measured on 4.1.2). Effect's own janitor
 app keeps every layer open and wires once at the edge, which is what pie does now. The wiring is a
 few named stages with one `provide` each, since the lint rules reject a nested provide and a chain
 of them in one pipe.
@@ -205,17 +221,18 @@ Every child process goes through one process service, with stdin closed, whether
 output, as git's do, or passes the terminal through, as mise's do. A failure carries the command
 line, the exit code and whatever output was captured.
 
-A service's `make` returns a plain object, not the class's own `of({...})`. In this Effect release, calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured).
+A service's `make` returns a plain object, not the class's own `of({...})`. Calling `of` makes the class reference itself in its own base expression, and it fails to compile (measured on 4.1.2).
 
 ## Rules
 
-Leaf imports only: `effect/Effect`, `effect/unstable/cli/Command`.
+Leaf imports only: `effect/Effect`, `effect/cli/Command`.
 
 :::warning
-Every barrel is banned — the `effect` root AND each subpath index (`effect/unstable/schema`,
+Every barrel is banned — the `effect` root AND each subpath index (`effect/http`, `effect/cli`,
 `effect/testing`, …). The subpath ones are what keep getting written. Enforced by a regex in
-`no-restricted-imports`: a barrel is the bare root, `effect/testing`, or a single lowercase segment
-under `unstable/`, since every leaf module is PascalCase. Type-only imports are exempt.
+`no-restricted-imports`: a barrel is the bare root or a single lowercase segment under it, since
+every leaf module is PascalCase (measured: all four of those fail lint, and their leaves pass).
+Type-only imports are exempt.
 :::
 
 :::warning
@@ -250,6 +267,11 @@ rejects it — measured). The other two read as ordinary code; they are on you.
 `Effect.retry`'s `while` takes a plain predicate, with no tag-based variant, so the tag-free form is
 `Match.value(error).pipe(Match.tag('X', () => true), Match.orElse(() => false))`. Verbose, and still
 not a licence to read `_tag`.
+
+A typed failure that meets a defect stops being typed. A failure whose finalizer dies carries both,
+and combining them turns the `Fail` into a `Die`, so `catch`, `catchTag` and `Cause.findError` all
+miss it (measured on 4.1.2; rc.117 recovered). The reporter then logs the whole cause rather than
+printing a message, which is right: it shows both instead of dropping the defect.
 :::
 
 :::warning
@@ -281,7 +303,7 @@ This is why `statement-order` leaves a type alias containing `typeof` unranked: 
 sort above constants, which would force every schema type away from its schema.
 :::
 
-- Errors are `Schema.TaggedError` with a `message` getter. This release has no `TaggedErrorClass`,
+- Errors are `Schema.TaggedError` with a `message` getter. Effect 4.1.2 has no `TaggedErrorClass`,
   whatever the `effect-best-practices` skill says. The getter's message is a full sentence, names the fix where
   possible. One reporter prints `error.message`; an error without one exits silently.
 - Module-level primitive constants are `SCREAMING_SNAKE_CASE` — they are the knobs and magic values,
@@ -346,7 +368,7 @@ Do not guess about Effect, oxc or Bun. Do not trust a plausible claim in a revie
 
 :::tip
 1. Read `node_modules/effect/src/**` — ground truth for API shape, and grepping it settles "is this
-   idiomatic" (e.g. `S["Type"]` appears 98 times in `Schema.ts`). Before anything depends on
+   idiomatic" (e.g. `S["Type"]` appears 83 times in `Schema.ts`). Before anything depends on
    `effect`, the hoisted copy is the same source: `node_modules/.bun/effect@*/node_modules/effect/src/**`.
    For oxlint and oxfmt, `node_modules/{oxlint,oxfmt}/configuration_schema.json` is the authoritative
    list of every option and rule — better than the docs, and it is what shipped.
@@ -397,7 +419,9 @@ the token can't read answered 403 instead of asking for credentials, so the head
 git command gets a `url.<local>.insteadOf` for that one command, so a clone's remote keeps the
 integration host, and nothing in pie exists only for them. A test's own runtime must not build a
 layer the run builds too: a `Command.provide` reuses it through the runtime's memo map, dependencies
-and all, and a fake provided around the run never reaches it (measured). A clone or fetch that fails names the repo,
+and all, and a fake provided around the run never reaches it (measured on 4.1.2). A composed layer
+counts: a `Layer.provide` result memoizes by its own identity, so a runtime built from one and a
+`provide` of that same value ran `make` once, where rc.117 ran it twice (measured). A clone or fetch that fails names the repo,
 the integration, and the tag that integration attaches to: `pie` for the config repo, the recipe's
 tag for the rest.
 
@@ -428,10 +452,9 @@ the names on disk. Sync reads only file and directory names, so it works on a co
 load yet. taplo 0.10.0 reads Effect's draft 2020-12 output as-is, and flags both an unknown key and
 an unknown name (measured).
 
-The editor schemas render a schema's encoded side, so a list that defaults to empty gives its
-default as a decoded value. The encoded-value default rebuilds the encoded schema, and a name
-field nested inside it came out as a second, enum-less `$defs` entry with a numeric suffix
-(measured).
+A list that defaults to empty gives its default as a decoded value. An encoded-value default used
+to add a second, enum-less `$defs` entry with a numeric suffix. On 4.1.2 the schemas come out
+byte-identical either way (measured), so nothing rests on the choice any more.
 
 Duplicate names can't happen: one file per name. A skill's frontmatter `name` must match its
 directory, as the Agent Skills spec requires. An agent's `name` only has to be non-empty, since
