@@ -17,15 +17,7 @@ import {
 } from './ConfigRepo.ts'
 import type { RecipeName } from './ExeDev.ts'
 import { Mise } from './Mise.ts'
-import {
-  BOX_LAYOUT,
-  Box,
-  EXECUTABLE_FILE_MODE,
-  homePathOf,
-  MARKDOWN_BLOCK_MARKERS,
-  REGULAR_FILE_MODE,
-  withBlock,
-} from './Box.ts'
+import { BOX_LAYOUT, Box, homePathOf, MARKDOWN_BLOCK_MARKERS, withBlock } from './Box.ts'
 
 type ClaudeConfig = ResolvedRecipe['claude']
 
@@ -84,6 +76,20 @@ const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
 const entryOf = (claudeFilePath: string) =>
   Arr.take(claudeFilePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
 
+const directoriesInsideEntryOf = (claudeFilePath: string) => {
+  const segments = claudeFilePath.split('/')
+
+  return pipe(
+    segments,
+    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
+    Arr.filter(
+      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
+    ),
+    Arr.map((prefix) => prefix.join('/')),
+    Arr.reverse,
+  )
+}
+
 const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
   `## pie
 
@@ -130,7 +136,12 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
         (entry) => {
           const entryPath = path.join(claudeDirectory, entry)
 
-          return box.failIfPresent(entryPath, () => new ClaudeEntryNotPies({ entryPath }))
+          return fileSystem.exists(entryPath).pipe(
+            Effect.filterOrFail(
+              (entryExists) => !entryExists,
+              () => new ClaudeEntryNotPies({ entryPath }),
+            ),
+          )
         },
         { discard: true },
       )
@@ -160,21 +171,12 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
     })
 
     const removeStaleFile = Effect.fn('Claude.removeStaleFile')(function* (claudeFilePath: string) {
-      const segments = claudeFilePath.split('/')
-      const directoriesInsideEntry = pipe(
-        segments,
-        Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
-        Arr.filter(
-          (prefix) =>
-            prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
-        ),
-        Arr.map((prefix) => path.join(claudeDirectory, ...prefix)),
-      )
-
       yield* fileSystem.remove(path.join(claudeDirectory, claudeFilePath), { force: true })
-      yield* Effect.forEach(Arr.reverse(directoriesInsideEntry), removeEmptyDirectory, {
-        discard: true,
-      })
+      yield* Effect.forEach(
+        directoriesInsideEntryOf(claudeFilePath),
+        (directory) => removeEmptyDirectory(path.join(claudeDirectory, directory)),
+        { discard: true },
+      )
     })
 
     const runClaudeMcp = (claudeMcpArguments: readonly string[]) =>
@@ -234,7 +236,10 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       }
       const settingsText = yield* Schema.encodeEffect(ClaudeSettingsJson)(mergedSettings)
 
-      yield* box.writeFileIfChanged(settingsPath, `${settingsText}\n`, REGULAR_FILE_MODE)
+      yield* box.writeFileIfChanged(settingsPath, {
+        content: `${settingsText}\n`,
+        executable: false,
+      })
     })
 
     const applyFiles = Effect.fn('Claude.applyFiles')(function* (
@@ -266,11 +271,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
           yield* Effect.forEach(
             claudeConfig.files,
             (claudeFile) =>
-              box.writeFileIfChanged(
-                path.join(claudeDirectory, claudeFile.claudePath),
-                claudeFile.content,
-                claudeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
-              ),
+              box.writeFileIfChanged(path.join(claudeDirectory, claudeFile.claudePath), claudeFile),
             { discard: true },
           )
           yield* Effect.forEach(

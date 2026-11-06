@@ -6,15 +6,7 @@ import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import type { ResolvedEnvironment, TaskFile, ToolRequest } from './ConfigRepo.ts'
-import {
-  BOX_LAYOUT,
-  Box,
-  EXECUTABLE_FILE_MODE,
-  REGULAR_FILE_MODE,
-  shellBlockMarkersOf,
-  shellPathOf,
-  withBlock,
-} from './Box.ts'
+import { BOX_LAYOUT, Box, shellBlockMarkersOf, shellPathOf, withBlock } from './Box.ts'
 import { Process } from './Process.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'
@@ -79,8 +71,7 @@ export class Mise extends Context.Service<Mise>()('pie/Mise', {
       yield* installMiseWhenMissing()
       yield* box.writeFileIfChanged(
         path.join(box.paths.miseConfigDirectory, 'conf.d', 'pie.toml'),
-        miseConfigOf(environment),
-        REGULAR_FILE_MODE,
+        { content: miseConfigOf(environment), executable: false },
       )
       yield* runMise(['install'])
       yield* box.updateTextFile(box.paths.profile, (text) =>
@@ -104,7 +95,7 @@ export class Mise extends Context.Service<Mise>()('pie/Mise', {
           const taskPath = path.join(taskDirectory, task.taskName)
 
           return box
-            .writeFileIfChanged(taskPath, task.content, EXECUTABLE_FILE_MODE)
+            .writeFileIfChanged(taskPath, { content: task.content, executable: true })
             .pipe(Effect.andThen(exec([taskPath])))
         },
         { discard: true },

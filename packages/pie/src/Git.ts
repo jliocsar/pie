@@ -15,7 +15,7 @@ import {
   recipeTagOf,
   repositoryUrlOf,
 } from './ExeDev.ts'
-import { Box, PRIVATE_DIRECTORY_MODE, REGULAR_FILE_MODE } from './Box.ts'
+import { Box } from './Box.ts'
 import { Process } from './Process.ts'
 
 interface GitRoute {
@@ -123,11 +123,11 @@ export class Git extends Context.Service<Git>()('pie/Git', {
     })
 
     const remember = Effect.fn('Git.remember')(function* (repositoryName: RepositoryName) {
-      yield* fileSystem.makeDirectory(path.dirname(rememberedPath), {
-        recursive: true,
-        mode: PRIVATE_DIRECTORY_MODE,
+      yield* box.makePieConfigDirectory
+      yield* box.writeFileIfChanged(rememberedPath, {
+        content: `${repositoryName}\n`,
+        executable: false,
       })
-      yield* box.writeFileIfChanged(rememberedPath, `${repositoryName}\n`, REGULAR_FILE_MODE)
     })
 
     const syncConfigCheckout = Effect.fn('Git.syncConfigCheckout')(function* (

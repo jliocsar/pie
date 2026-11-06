@@ -21,6 +21,11 @@ interface OwnershipManifests<Manifest> {
   readonly final: Manifest
 }
 
+interface BoxFile {
+  readonly content: string | Uint8Array
+  readonly executable: boolean
+}
+
 interface BoxLocation {
   readonly root: BoxRoot
   readonly relativePath: string
@@ -28,10 +33,9 @@ interface BoxLocation {
 }
 
 const PERMISSION_BITS = 0o777
-
-export const REGULAR_FILE_MODE = 0o644
-export const EXECUTABLE_FILE_MODE = 0o755
-export const PRIVATE_DIRECTORY_MODE = 0o700
+const REGULAR_FILE_MODE = 0o644
+const EXECUTABLE_FILE_MODE = 0o755
+const PRIVATE_DIRECTORY_MODE = 0o700
 
 const ROOT_HOME_PATHS: Record.ReadonlyRecord<BoxRoot, string> = {
   home: '',
@@ -138,9 +142,14 @@ export class Box extends Context.Service<Box>()('pie/Box', {
       path.join(rootDirectories[location.root], location.relativePath),
     )
 
-    const writeFileIfChanged = Effect.fn('Box.writeFileIfChanged')(function* (
+    const makePieConfigDirectory = fileSystem.makeDirectory(paths.pieConfigDirectory, {
+      recursive: true,
+      mode: PRIVATE_DIRECTORY_MODE,
+    })
+
+    const writeWithModeIfChanged = Effect.fn('Box.writeWithModeIfChanged')(function* (
       filePath: string,
-      content: string | Uint8Array,
+      content: BoxFile['content'],
       fileMode: number,
     ) {
       const bytes = Predicate.isString(content) ? new TextEncoder().encode(content) : content
@@ -160,6 +169,13 @@ export class Box extends Context.Service<Box>()('pie/Box', {
       }
     })
 
+    const writeFileIfChanged = (filePath: string, { content, executable }: BoxFile) =>
+      writeWithModeIfChanged(
+        filePath,
+        content,
+        executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
+      )
+
     const updateTextFile = Effect.fn('Box.updateTextFile')(function* (
       filePath: string,
       updateText: (text: string) => string,
@@ -176,7 +192,7 @@ export class Box extends Context.Service<Box>()('pie/Box', {
         ? (yield* fileSystem.stat(filePath)).mode & PERMISSION_BITS
         : REGULAR_FILE_MODE
 
-      yield* writeFileIfChanged(filePath, updatedText, fileMode)
+      yield* writeWithModeIfChanged(filePath, updatedText, fileMode)
     })
 
     const readJsonFile = Effect.fn('Box.readJsonFile')(function* <Decoded>(
@@ -211,21 +227,9 @@ export class Box extends Context.Service<Box>()('pie/Box', {
         return
       }
 
-      yield* fileSystem.makeDirectory(path.dirname(filePath), {
-        recursive: true,
-        mode: PRIVATE_DIRECTORY_MODE,
-      })
+      yield* makePieConfigDirectory
       yield* fileSystem.writeFileString(temporaryFilePath, jsonText)
       yield* fileSystem.rename(temporaryFilePath, filePath)
-    })
-
-    const failIfPresent = Effect.fn('Box.failIfPresent')(function* <Failure>(
-      filePath: string,
-      failureOf: () => Failure,
-    ) {
-      yield* fileSystem
-        .exists(filePath)
-        .pipe(Effect.filterOrFail((fileExists) => !fileExists, failureOf))
     })
 
     const writeOwned = Effect.fn('Box.writeOwned')(function* <Manifest, Failure, Requirements>(
@@ -242,10 +246,10 @@ export class Box extends Context.Service<Box>()('pie/Box', {
     return {
       home,
       paths,
+      makePieConfigDirectory,
       writeFileIfChanged,
       updateTextFile,
       readJsonFile,
-      failIfPresent,
       writeOwned,
     }
   }),

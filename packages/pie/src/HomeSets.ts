@@ -6,14 +6,7 @@ import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
-import {
-  Box,
-  EXECUTABLE_FILE_MODE,
-  REGULAR_FILE_MODE,
-  shellBlockMarkersOf,
-  withBlock,
-  withoutBlock,
-} from './Box.ts'
+import { Box, shellBlockMarkersOf, withBlock, withoutBlock } from './Box.ts'
 import type { HomeFile } from './ConfigRepo.ts'
 
 const HOME_MANIFEST_FILE_NAME = 'home-manifest.json'
@@ -79,9 +72,11 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
         (homeFile) => {
           const filePath = path.join(box.home, homeFile.homePath)
 
-          return box.failIfPresent(
-            filePath,
-            () => new HomeFileNotPies({ filePath, homeName: homeFile.homeName }),
+          return fileSystem.exists(filePath).pipe(
+            Effect.filterOrFail(
+              (fileExists) => !fileExists,
+              () => new HomeFileNotPies({ filePath, homeName: homeFile.homeName }),
+            ),
           )
         },
         { discard: true },
@@ -146,12 +141,7 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
           )
           yield* Effect.forEach(
             copiedHomeFilesOf(homeFiles),
-            (homeFile) =>
-              box.writeFileIfChanged(
-                path.join(box.home, homeFile.homePath),
-                homeFile.content,
-                homeFile.executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
-              ),
+            (homeFile) => box.writeFileIfChanged(path.join(box.home, homeFile.homePath), homeFile),
             { discard: true },
           )
           yield* Effect.forEach(
