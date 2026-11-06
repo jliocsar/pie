@@ -86,7 +86,7 @@ Because `layer` leaves its dependencies open, code that uses a service gets a fa
 const ProfilesTest = Layer.succeed(Profiles, {
   load: () => Effect.succeed({ tags: [], servers: [] })
 })
-// only the members the test touches; an omitted one dies with `UnimplementedError` if called:
+// only the Effect-returning members the test touches, plain value members are required; an omitted one dies with `UnimplementedError` if called:
 const ProfilesMock = Layer.mock(Profiles, { load: () => Effect.succeed({ tags: ["x"], servers: [] }) })
 
 program.pipe(Effect.provide(ProfilesTest))

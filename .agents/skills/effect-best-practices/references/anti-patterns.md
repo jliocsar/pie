@@ -11,14 +11,14 @@ Forbidden patterns and v3 holdovers. Each is wrong in Effect v4; the fix follows
 - DON'T `Either` → use `Result` (no `Either.ts` in v4). `decodeEither` → `decodeResult`/`decodeExit`.
 - DON'T `Schema.TaggedErrorClass` / `Schema.ErrorClass` (not in 4.1.2) → `Schema.TaggedError<Self>()("Tag", {...}, annotations)` / `Schema.Error<Self>("Id")({...})`.
 - DON'T `Schema.minLength`/`Schema.pattern`/`Schema.filter(...)` constructors → `.check(Schema.isMinLength(n))`, `.check(Schema.isPattern(re))`, etc.
-- DON'T top-level `Schema.transform` → `.pipe(Schema.decodeTo(to, { decode, encode }))`.
+- DON'T top-level `Schema.transform` → `.pipe(Schema.decodeTo(to, SchemaTransformation.transform({ decode, encode })))`.
 - DON'T `Schema.Record({ key, value })` → positional `Schema.Record(key, value)`. `Schema.Union(a, b)` → array form `Schema.Union([a, b])`.
 - DON'T `metric.increment()` / `metric.record()` / `Effect.withMetric` → standalone `Metric.update(m, v)` / `Metric.modify(m, d)`.
 - DON'T `Schedule.intersect`/`Schedule.union` → `Schedule.max([a, b])`/`Schedule.min([a, b])` (array, not pipeable). No `Schedule.linear`, `both`, `either`, `andThen` (→ `concat`) or `take` (→ `upTo({ times })`).
 - DON'T `Effect.forEachPar`/`allPar`/`zipPar`/`zipWithPar` (and any `*Par` suffix) → pass `{ concurrency }` to the base combinator (`Effect.forEach(xs, f, { concurrency })`), or bound with `Semaphore.make(n)`.
 - DON'T `Stream.mapEffectPar` → `Stream.mapEffect(f, { concurrency })`. `Queue.takeUpTo` does not exist.
 - DON'T `Effect.fork`/`forkDaemon` → `forkChild`/`forkScoped`/`forkIn`/`forkDetach`.
-- DON'T AI `model.withRequirements` → `Model.captureRequirements`.
+- DON'T AI `model.withRequirements` → `yield* model.captureRequirements`, an instance property yielding a `Layer`.
 - DON'T `BunRuntime.layer` (does not exist) → provide `BunServices.layer`, run with `BunRuntime.runMain`.
 - DON'T import platform Tags from `@effect/platform` → import from core `effect/...` (e.g. `effect/FileSystem`).
 
@@ -43,7 +43,7 @@ Forbidden patterns and v3 holdovers. Each is wrong in Effect v4; the fix follows
 - DON'T call the class's own `.of(...)` inside the `make` passed to `Context.Service` (TS2506, its own base expression) → return a plain object; declare the shape as the second type parameter to pin it.
 - DON'T `Effect.fail(e).pipe(Effect.when(Effect.succeed(cond)))` as a guard → `if (cond) { return yield* new SomeError(...) }`.
 - DON'T `Layer.merge` when you need a dependency satisfied → `provide` (hide) or `provideMerge` (expose).
-- DON'T leave finalizers/release effects fallible → release must be infallible (`Effect.sync` or fully handled).
+- DON'T try to make finalizers/release effects fallible → they must have `E = never`, and the compiler enforces it: use `Effect.sync` or handle the failure.
 
 ## House rules
 

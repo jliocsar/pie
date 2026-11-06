@@ -50,7 +50,7 @@ yield* Cache.invalidateAll(cache)
 - Operations are STANDALONE functions taking the cache first: `Cache.get(cache, key)`, NOT `cache.get(key)` (the instance has no methods).
 - Per-entry / exit-aware TTL: `Cache.makeWith(lookup, { capacity, timeToLive: (exit, key) => Duration })` — e.g. short TTL on failures, long on success.
 - Single value, no key: `Effect.cached(effect)` (memoize once) / `Effect.cachedWithTTL(effect, "30 seconds")`.
-- DON'T hand-roll Map/TTL/prune or in-flight dedupe — `Cache` is exactly that. See `anti-patterns.md`.
+- DON'T hand-roll Map/TTL/prune or in-flight dedupe — `Cache` is exactly that.
 
 ## Scoped cache (`effect/ScopedCache`)
 

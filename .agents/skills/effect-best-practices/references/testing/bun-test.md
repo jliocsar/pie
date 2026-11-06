@@ -63,7 +63,7 @@ These constructors take the whole service, so a fake written earlier stops compi
 
 | Constructor | Must now supply | Or use |
 | --- | --- | --- |
-| `FileSystem.make` | `readDirectoryEntries`, `lstat` | `FileSystem.layerNoop(partial)`: a member you leave out fails with not-found |
+| `FileSystem.make` | `readDirectoryEntries`, `lstat` | `FileSystem.layerNoop(partial)`: most members you leave out fail with NotFound, but `exists` returns false, `remove` succeeds, and `makeDirectory` and `makeTemp*` die |
 | `Terminal.make` | `size`: `Effect.die("unused")` when nothing reads it | |
 | `KeyValueStore.make` | `keys` | `KeyValueStore.layerMemory` |
 

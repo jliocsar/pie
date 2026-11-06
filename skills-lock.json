@@ -5,7 +5,7 @@
       "source": "jliocsar/agents-boilerplate",
       "sourceType": "github",
       "skillPath": ".agents/skills/effect-best-practices/SKILL.md",
-      "computedHash": "cf0fbb65a59db2d1d8b41aa8568991b8200fc0cd77f61d8dcff94611ab3262ac"
+      "computedHash": "d73f76387ddde60462edd78526d1779b4872848b51af024969f55b61d04ba39d"
     },
     "untangle-codebase": {
       "source": "caldoai/skills",

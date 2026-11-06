@@ -7,7 +7,7 @@ Compose services with `merge`/`provide`/`provideMerge`. Layers are memoized by d
 | Combinator | Output type | Use when |
 |---|---|---|
 | `Layer.merge(a, b)` / `Layer.mergeAll(...)` | `ROut_a \| ROut_b`, requirements unioned | Combine INDEPENDENT services (neither needs the other). |
-| `self.pipe(Layer.provide(dep))` | only `self`'s ROut; `dep`'s requirements consumed/HIDDEN | Feed a dependency into `self` and HIDE it from callers (`Exclude<RIn2, ROut>`). |
+| `self.pipe(Layer.provide(dep))` | only `self`'s ROut; `dep`'s outputs satisfy `self`'s requirements and are HIDDEN, and `dep`'s own requirements stay open | Feed a dependency into `self` and HIDE it from callers (`Exclude<RIn2, ROut>`). |
 | `self.pipe(Layer.provideMerge(dep))` | `self` ROut + `dep` ROut both exposed | Feed dep into self AND keep dep visible downstream. |
 
 ```ts
@@ -105,7 +105,7 @@ Command.run(cli, { version }).pipe(Effect.provide(BunServices.layer), BunRuntime
 - Layers are memoized by default: yielding the same service twice returns the SAME instance. Memoization is keyed via the `MemoMap`.
 - `Layer.fresh(layer)` opts OUT — builds a new instance each use.
 - For multi-runtime apps share a single `MemoMap` via `Layer.makeMemoMapUnsafe()` (see `runtime-and-scope.md`).
-- `Effect.provide(layer, { local: true })` opts OUT at the provide site — builds/acquires the layer FRESH for that provide instead of sharing across provide calls (default `local: false` shares). Use for isolated acquisition per provide.
+- `Effect.provide(layer, { local: true })` opts OUT at the provide site — builds the layer FRESH, ignoring what the surrounding memo map already built. By default a provide reuses those, but sibling provides still build their own copy each (measured). Use `local: true` for isolated acquisition inside a runtime that already built the layer.
 
 ## When to prefer each
 

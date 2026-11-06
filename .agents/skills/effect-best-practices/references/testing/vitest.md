@@ -12,7 +12,7 @@ Fakes work the same as under `bun:test`, and custom ones need the members added 
 - `.each([...])`, `.skip`, `.skipIf(cond)`, `.runIf(cond)`, `.only`, `.fails`, `.prop(...)` mirror on both `it.effect` and `it.live`.
 - `it.flakyTest(effect, timeout?)`.
 
-- DON'T use `it.scoped` — it does not exist in v4. `it.effect` already wraps in `Effect.scoped`, so `Effect.acquireRelease` works directly inside `it.effect`. Porting from v3: drop `it.scoped`.
+- DON'T use `it.scoped` — `@effect/vitest` adds none. vitest's own deprecated `it.scoped(fixtures)` is still reachable, fails to compile with a test body, and forced through a cast registers no test, so an unported call passes silently. `it.effect` already wraps in `Effect.scoped`, so `Effect.acquireRelease` works directly inside `it.effect`. Porting from v3: drop `it.scoped`.
 - DO use `it.effect` for Effect code (auto TestClock/TestConsole + scope); `it.live` only when you need the real clock/IO.
 
 `TestEnv` (auto-provided by `it.effect` and `layer()` unless `excludeTestServices: true`):
@@ -136,9 +136,10 @@ const testLayer = Layer.mock(UserService, {
 Building a `Context` by hand (stubs / manual provision):
 
 ```ts
-let ctx = Context.empty()                    // Context<never>
-ctx = Context.add(ctx, Port, 8080)           // add(ctx, tag, value); replaces same key
-ctx = Context.add(ctx, Host, "localhost")
+const ctx = Context.empty().pipe(            // Context<never>, then one key per add
+  Context.add(Port, 8080),                   // replaces the same key
+  Context.add(Host, "localhost")
+)
 const port = Context.get(ctx, Port)          // 8080
 ```
 
@@ -161,7 +162,7 @@ assert.deepStrictEqual(yield* Ref.get(calls), ["getUser"])
 ## expect / assert
 
 - `expect` (re-exported vitest): `expect(x).toEqual(...)`, `.toContain(...)`, `.toHaveBeenCalledTimes(n)`.
-- `assert` (chai-style, re-exported): `assert.strictEqual`, `assert.deepStrictEqual`, `assert.isTrue/isFalse`, `assert.isUndefined`, `assert.instanceOf`, `assert.throws`, `assert.rejects`.
+- `assert` (chai-style, re-exported): `assert.strictEqual`, `assert.deepStrictEqual`, `assert.isTrue/isFalse`, `assert.isUndefined`, `assert.instanceOf`, `assert.throws`. There's no `assert.rejects`: use `Effect.exit` plus an assertion, or `await expect(promise).rejects`.
 - Assertions run INSIDE `Effect.gen`; a thrown assertion fails the fiber → the test (failures pretty-printed before the exit is re-raised).
 
 ## flakyTest / retry

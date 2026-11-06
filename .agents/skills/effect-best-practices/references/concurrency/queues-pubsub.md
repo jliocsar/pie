@@ -5,7 +5,7 @@
 ## Queue — error channel + `Cause.Done` completion
 
 ```ts
-const q = yield* Queue.bounded<A>(cap)   // also unbounded(), dropping(cap), sliding(cap)
+const q = yield* Queue.bounded<A, Cause.Done>(cap)   // also unbounded(), dropping(cap), sliding(cap); Queue.end needs Cause.Done in E
 yield* Queue.offer(q, x)                 // Effect<boolean>
 yield* Queue.offerAll(q, xs)             // returns remaining
 Queue.offerUnsafe(q, x)

@@ -55,7 +55,7 @@ Command.run(download, { version: "1.0.0" }).pipe(Effect.provide(BunServices.laye
 - `Command.validate` sees what the handler sees, defaults applied. Several run in order and stop at the first failure.
 - A failed `validate` or a value its schema rejects prints help to the console and the error to the error console, then fails with `CliError.ShowHelp`.
 - `validate` placed after `withSharedFlags` sees the shared flags; placed after `withSubcommands` it also runs for the subcommands.
-- Subcommands: `Command.withSubcommands([a, b])`. A subcommand reads its parent's input with `yield* parent`.
+- Subcommands: `Command.withSubcommands([a, b])`. A subcommand reads the parent's `Command.withSharedFlags` flags with `yield* parent`. The parent's own config flags don't reach it, and are rejected before the subcommand.
 
 ## Output
 
@@ -112,4 +112,4 @@ const prints = (args: ReadonlyArray<string>) =>
 ```
 
 - Assert a rejection with `Effect.exit` and `TestConsole.errorLines`: the failure is `CliError.ShowHelp`, and the message is in the error lines.
-- `{ renderErrors: false }` keeps the failure and skips printing it.
+- `{ renderErrors: false }` keeps the failure and skips the error text. Help still prints.

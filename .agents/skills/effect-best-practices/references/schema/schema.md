@@ -45,7 +45,7 @@ type E = typeof MySchema.Encoded
 ```ts
 // also valid, more verbose (namespace form)
 type T = Schema.Schema.Type<typeof MySchema>
-type E = Schema.Schema.Encoded<typeof MySchema>
+type E = Schema.Codec.Encoded<typeof MySchema>
 ```
 
 - DO: `typeof X.Type` / `typeof X.Encoded` — the idiom used in v4 domain fixtures.
@@ -70,7 +70,7 @@ Schema.String.check(Schema.isMinLength(1)).pipe(Schema.brand("b"))
 
 ## Filters / refinements
 
-v3 `Schema.minLength` / `Schema.pattern` constructors are GONE. v4 uses `.check(...)` with `Schema.is*` filter factories. `filter` is NOT a top-level export — only `check` and `refine`.
+v3 `Schema.minLength` / `Schema.pattern` constructors are GONE. v4 uses `.check(...)` with `Schema.is*` filter factories. `filter` is NOT a top-level export — only `check`, `refine` and `makeFilter`: `.check(Schema.makeFilter(predicate))` for a custom predicate.
 
 ```ts
 Schema.String.check(Schema.isMinLength(5))
@@ -81,7 +81,7 @@ Schema.Int.check(Schema.isBetween({ minimum: 5, maximum: 10 }))
 ```
 
 - `Schema.refine(guard, annotations?)`: narrows the TS type via a `value is T` type guard + attaches a runtime filter.
-- Filter annotations: `{ message: () => "...", expected, identifier }`. Default formatter uses `message`, then `expected`, then `<filter>`.
+- Filter annotations: `{ message: "...", expected, identifier }`. `message` is a string, not a thunk: a function fails to compile and, forced through a cast, is ignored. Default formatter uses `message`, then `expected`, then `<filter>`.
 - DON'T: `Schema.String.pipe(Schema.filter(...))` or `Schema.minLength(5)` (v3) — use `.check(Schema.is*())`.
 - No bare `Schema.UUID` const — it's the check `Schema.isUUID()` on `Schema.String`.
 
@@ -107,8 +107,8 @@ const NumberFromString = Schema.Number.pipe(
 )
 ```
 
-- `Schema.decodeTo(to, {decode, encode})` / `Schema.encodeTo(to, {decode, encode})`: method-based transform to/from another schema.
-- `SchemaTransformation.transform({decode,encode})` and `SchemaTransformation.transformEffect({decode,encode})` (each returns an `Effect` failing with a `SchemaIssue.Issue`) live in the `SchemaTransformation` module.
+- `Schema.decodeTo(to, transformation)` / `Schema.encodeTo(to, transformation)`: transform to/from another schema. `transformation` is a `SchemaTransformation.transform({decode, encode})` or a `{decode, encode}` of `SchemaGetter` getters; plain functions fail to compile.
+- `SchemaTransformation.transform({decode,encode})` takes plain functions; `SchemaTransformation.transformEffect({decode,encode})` takes functions returning an `Effect` that may fail with a `SchemaIssue.Issue`.
 - `Schema.decode(transformation)`: pipeable identity-target transform on the same Type; it takes a `SchemaTransformation` or `{decode,encode}` of `SchemaGetter.Getter`s.
 - DON'T: `Schema.transform(...)` / `Schema.transformOrFail(...)` at top level (v3, removed).
 
@@ -195,7 +195,7 @@ Shape.match(value, {                         // data-first OR data-last (cases-o
 })
 ```
 
-`Schema.toTaggedUnion(tagKey)` augments an EXISTING `Schema.Union` of structs that discriminate on a CUSTOM key (not `_tag`), adding the same `.cases`/`.match`/`.guards`:
+`Schema.toTaggedUnion(tagKey)` augments an EXISTING `Schema.Union` that discriminates on any literal key, `_tag` included, adding the same `.cases`/`.match`/`.guards`:
 
 ```ts
 const A = Schema.Struct({ type: Schema.Literal("a"), value: Schema.Number })
@@ -251,7 +251,7 @@ Schema.decodeUnknownOption(Schema.Json)({ key: [1, true, null] })               
 
 ## Annotations
 
-Attach via the relevant API's annotations arg or annotation calls: `{ message: () => "...", expected, identifier }` on filters; class metadata as the trailing annotations arg (e.g. `httpApiStatus`).
+Attach via the relevant API's annotations arg or annotation calls: `{ message: "...", expected, identifier }` on filters; class metadata as the trailing annotations arg (e.g. `httpApiStatus`).
 
 ## Tagged errors
 

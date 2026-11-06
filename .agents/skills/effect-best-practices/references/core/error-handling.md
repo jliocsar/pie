@@ -3,7 +3,7 @@
 ## Defining errors
 
 - DO use `Schema.TaggedError<Self>()("Tag", { fields })` — the recommended way for schema-backed/serializable errors. Also `Schema.Error` (no tag).
-- `Data.TaggedError("Tag")<{...}>` and `Data.Error` also exist — produce `Cause.YieldableError`, work with `catchTag`/`catchTags`, and are yieldable in `Effect.gen` to fail the effect. The `_tag` is excluded from constructor args. Prefer `Schema.TaggedError` for serializable errors.
+- `Data.TaggedError("Tag")<{...}>` and `Data.Error` also exist — produce `Cause.YieldableError` and are yieldable in `Effect.gen` to fail the effect. `Data.TaggedError` works with `catchTag`/`catchTags`, and its `_tag` is excluded from constructor args. `Data.Error` has no tag, so catch it with `Effect.catch`. Prefer `Schema.TaggedError` for serializable errors.
 - For defect/unknown causes inside an error schema, use `cause: Schema.Defect()` (it's a factory — bare `Schema.Defect` is not a schema).
 - DO include context fields (IDs, inputs) in error classes.
 

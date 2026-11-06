@@ -54,7 +54,7 @@ effect.pipe(Effect.retry(policy), Effect.orDie)
 - DO `orDie` after retries are exhausted.
 
 ```ts
-// AND-cap: exponential backoff capped at 6 attempts
+// AND-cap: exponential backoff capped at 6 retries, so 7 attempts
 Schedule.max([Schedule.exponential("250 millis"), Schedule.recurs(6)])
 
 // Inferred-input builder form of retry:
@@ -78,9 +78,9 @@ effect.pipe(Effect.timeoutOption("2 seconds"))
 ```
 
 - `Effect.retryOrElse(schedule, orElse)` — the `orElse` handler receives `(error, scheduleOutput)` and its success/error becomes the result. Use when exhausted retries have a real fallback (cache, default, degraded path).
-- `Effect.timeout(dur)` fails with `TimeoutError` (a defect-free typed failure) on expiry — catch it or pair with `retry`/`orElse`.
+- `Effect.timeout(dur)` fails with `TimeoutError` (a defect-free typed failure) on expiry — catch it with `catchTag("TimeoutError", ...)` or pair with `retry`.
 - Prefer `timeoutOption` when "didn't finish in time" is a normal, handled outcome rather than an error.
-- DON'T reach for `retryOrElse` when there's no truthful fallback — let exhausted failures stay visible (`Effect.orDie`). See `anti-patterns.md`.
+- DON'T reach for `retryOrElse` when there's no truthful fallback — let exhausted failures stay visible (`Effect.orDie`).
 
 ## Bounding schedules & cause-catch helpers
 

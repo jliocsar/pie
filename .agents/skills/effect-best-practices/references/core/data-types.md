@@ -4,7 +4,7 @@
 
 - `Option.match(self, { onNone, onSome })`, `Option.getOrElse(self, () => default)`.
 - `Option.getOrUndefined`, `Option.getOrThrow`.
-- DON'T use `Option.getOrThrow` in Effect code — recover Options into the Effect error channel via `Effect.fromNullishOr` / `Effect.mapError`.
+- DON'T use `Option.getOrThrow` in Effect code — recover Options into the Effect error channel with `Effect.fromOption(option, () => new SomeError(...))`. `Effect.fromNullishOr` is for null and undefined: given an `Option.none()` it succeeds with the Option.
 
 ## Either → Result (renamed in v4)
 
@@ -12,13 +12,13 @@ There is NO `Either.ts`; the core data type is `Result`.
 
 - `Result<A, E>` = `Success<A, E> | Failure<A, E>`. `E` defaults to `never`.
 - `Result.succeed(a)`, `Result.fail(e)`, `Result.match`, `Result.getOrElse`, `Result.isSuccess`, `Result.isFailure`.
-- `Result` is yieldable in `Effect.gen` (produces inner value or short-circuits on failure), is a monad (`flatMap`/`andThen`/`tap`/`pipe`), pure/immutable.
-- Schema also renamed Either-flavored APIs: `EitherFromSelf`→`Result`, `decodeUnknownEither`→`decodeUnknownExit`, `decodeEither`→`decodeExit`.
+- `Result` is yieldable in `Result.gen`, not in `Effect.gen`, where it's a type error and dies at runtime: lift it with `Effect.fromResult`. It is a monad (`flatMap`/`andThen`/`tap`/`pipe`), pure/immutable.
+- Schema also renamed Either-flavored APIs: `EitherFromSelf`→`Result`, `decodeUnknownEither`→`decodeUnknownResult`, `decodeEither`→`decodeResult`. The `*Exit` variants exist too.
 
 ## Data
 
 - `Data.Class`, `Data.TaggedClass`, `Data.Error`, `Data.TaggedError`, `Data.taggedEnum` (TaggedEnum / ADTs).
-- Use Data for value-equality semantics (implements `Equal`) and discriminated-union modelling.
+- Use Data for discriminated-union modelling. `Equal.equals` is already structural for plain objects and class instances, so Data adds no equality of its own, and `Data.Error`/`Data.TaggedError` instances compare by reference.
 
 ### TaggedEnum / taggedEnum (ADTs)
 

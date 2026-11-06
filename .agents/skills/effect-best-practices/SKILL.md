@@ -30,7 +30,7 @@ Start at `references/index.md` and navigate to the relevant pillar. Each folder'
 | Errors | `Schema.TaggedError<Self>()("Tag", {...})`, one per failure reason | `Schema.TaggedErrorClass` (not in 4.1.2); generic shared errors |
 | Catch | `Effect.catch` / `catchTag` / `catchTags` / `catchCause` | `catchAll` / `catchSome` (renamed) |
 | Tags | `catchTag` / `catchReason` / `Match.tagsExhaustive` / `Union.match`; `Union.guards.X(value)` for one variant | reading `x._tag` or `error.reason._tag`: it keeps compiling when a variant is added, so the new case goes unhandled; `Predicate.isTagged`: it takes `unknown`, so a typo compiles |
-| Result type | `Result` (yieldable) | `Either` (gone) |
+| Result type | `Result`; `yield*` it inside `Result.gen`, and lift it with `Effect.fromResult` inside `Effect.gen`, as `Effect.fromOption` does for an `Option` | `Either` (gone); `yield*` of a `Result` or `Option` in `Effect.gen`: a type error, and it dies at runtime |
 | Schema filters | `.check(Schema.isMinLength(n))` | `Schema.minLength(n)` (gone) |
 | IDs / domain | brand ids (`Schema.brand`); `Option<T>` for absence | plain `string` ids; `null`/`undefined` |
 | Concurrency | option-driven `{ concurrency }`; `Semaphore.make(n)` | `*Par` variants (gone) |

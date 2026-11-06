@@ -34,7 +34,7 @@ process.once("SIGTERM", () => void runtime.dispose())
 Instance methods: `runFork`, `runSyncExit`, `runSync`, `runCallback`, `runPromise`. Has `.scope: Scope.Closeable`, `.memoMap`, `.contextEffect`.
 
 - DO create ONE runtime per app and share it across handlers.
-- DO pass a shared global `memoMap` (`Layer.makeMemoMapUnsafe()`), else layers rebuild per call / duplicate across runtimes.
+- DO pass a shared global `memoMap` (`Layer.makeMemoMapUnsafe()`), else each runtime builds its own copy. Calls on one runtime never rebuild.
 - DO `runtime.dispose()` on shutdown (tears down layers/scope).
 - DO keep business logic in services/Effect; use the runtime ONLY at the boundary.
 - DON'T call `runPromise`/`runSync` deep inside business logic (run-at-the-edge rule).
@@ -68,8 +68,8 @@ Layer.effect(Connection, Effect.gen(function*() {
 
 ### Rules
 
-- Release/finalizer phase MUST be infallible (`Effect.sync` or handle errors). Fallible finalizers → dangling resources.
-- Acquire phase should be infallible or handle errors.
+- Release and `addFinalizer` must have `E = never`: a fallible one fails to compile.
+- Acquire may fail. The failure propagates, and release doesn't run.
 - Finalizers run even on interruption (guaranteed).
 - DON'T manually open scopes you forget to close — prefer `acquireRelease`/`scoped`/layer lifecycle.
 
