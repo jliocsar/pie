@@ -2,7 +2,6 @@ import * as BunServices from '@effect/platform-bun/BunServices'
 import { afterAll, describe, expect, test } from 'bun:test'
 import * as Arr from 'effect/Array'
 import * as Effect from 'effect/Effect'
-import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 import * as Record from 'effect/Record'
@@ -19,7 +18,7 @@ import {
   HomePathsOverlap,
   RecipeNameNotTaggable,
 } from './ConfigRepo.ts'
-import { writeConfigFiles } from './test/TestPie.ts'
+import { inFreshDirectory, writeFilesUnder } from './test/TestPie.ts'
 
 const ENVIRONMENT_TOML = `label = "Personal"
 tasks = ["workspace", "work/setup-gcloud"]
@@ -81,16 +80,15 @@ const bunServicesRuntime = ManagedRuntime.make(
 const decodeText = (content: Uint8Array) => new TextDecoder().decode(content)
 
 const loadConfigFrom = (configFiles: Record.ReadonlyRecord<string, string>) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem
-    const configDirectory = yield* fileSystem.makeTempDirectoryScoped()
+  inFreshDirectory((configDirectory) =>
+    Effect.gen(function* () {
+      const configRepo = yield* ConfigRepo
 
-    yield* writeConfigFiles(configDirectory, configFiles, [])
+      yield* writeFilesUnder(configDirectory, configFiles)
 
-    const configRepo = yield* ConfigRepo
-
-    return yield* configRepo.load(configDirectory)
-  }).pipe(Effect.scoped)
+      return yield* configRepo.load(configDirectory)
+    }),
+  )
 
 afterAll(() => bunServicesRuntime.dispose())
 
@@ -175,11 +173,16 @@ describe('loadConfig', () => {
           'recipes/personal.toml': 'label = "Personal"\nenvironment = "personal"\n',
         })
 
-        expect(config.recipes['personal']).toMatchObject({
-          tags: [],
-          repositories: [],
-          home: [],
-          claude: { files: [], settings: {}, mcpServers: {}, instructionTexts: [] },
+        const recipe = config.recipes['personal']
+
+        expect(recipe?.tags).toEqual([])
+        expect(recipe?.repositories).toEqual([])
+        expect(recipe?.home).toEqual([])
+        expect(recipe?.claude).toEqual({
+          files: [],
+          settings: {},
+          mcpServers: {},
+          instructionTexts: [],
         })
       }),
     ))
@@ -192,7 +195,7 @@ describe('loadConfig', () => {
           'environments/node.toml':
             'extends = "personal"\nlabel = "Node"\n\n[tools]\nnode = "25.0.0"\n\n[env]\nNODE_ENV = "development"\n',
           'environments/web.toml':
-            'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n',
+            'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n\n[env]\nGH_HOST = "web.example"\n',
           'recipes/node.toml': 'label = "Node"\nenvironment = "node"\n',
           'recipes/web.toml': 'label = "Web"\nenvironment = "web"\n',
         })
@@ -201,9 +204,13 @@ describe('loadConfig', () => {
 
         expect(taskNamesOf('node')).toEqual(['workspace', 'work/setup-gcloud'])
         expect(taskNamesOf('web')).toEqual(['workspace'])
-        expect(config.recipes['web']?.environment).toMatchObject({
-          tools: { node: { version: '25.0.0' }, 'github:dmtrKovalenko/fff': { version: '0.11.0' } },
-          env: { GH_HOST: 'github.int.exe.xyz', NODE_ENV: 'development' },
+        expect(config.recipes['web']?.environment.tools).toEqual({
+          node: { version: '25.0.0' },
+          'github:dmtrKovalenko/fff': { version: '0.11.0' },
+        })
+        expect(config.recipes['web']?.environment.env).toEqual({
+          GH_HOST: 'web.example',
+          NODE_ENV: 'development',
         })
       }),
     ))

@@ -3,7 +3,9 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
-import { Process } from '../Process.ts'
+import * as Stream from 'effect/Stream'
+import * as ChildProcess from 'effect/unstable/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 
 const REGULAR_FILE_MODE = 0o644
 
@@ -53,10 +55,17 @@ GH_HOST = "github.int.exe.xyz"
 const SEED_EXECUTABLE_FILE_PATHS = ['skills/handoff/scripts/greet', 'tasks/workspace']
 
 export const runGit = Effect.fn('runGit')(function* (gitArguments: readonly string[]) {
-  const processes = yield* Process.make
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const gitProcess = yield* spawner.spawn(ChildProcess.make('git', gitArguments))
+  const [gitOutput, exitCode] = yield* Effect.all(
+    [Stream.mkString(Stream.decodeText(gitProcess.all)), gitProcess.exitCode],
+    { concurrency: 'unbounded' },
+  )
 
-  return yield* processes.capture(['git', ...gitArguments], {})
-})
+  return exitCode === 0
+    ? gitOutput
+    : yield* Effect.die(`git ${gitArguments.join(' ')} exited with ${exitCode}: ${gitOutput}`)
+}, Effect.scoped)
 
 export const inFreshDirectory = <Success, Failure, Requirements>(
   useDirectory: (temporaryDirectory: string) => Effect.Effect<Success, Failure, Requirements>,
@@ -68,18 +77,18 @@ export const inFreshDirectory = <Success, Failure, Requirements>(
     return yield* useDirectory(temporaryDirectory)
   }).pipe(Effect.scoped)
 
-export const writeConfigFiles = Effect.fn('writeConfigFiles')(function* (
-  configDirectory: string,
-  configFiles: Record.ReadonlyRecord<string, string>,
-  executableFilePaths: readonly string[],
+export const writeFilesUnder = Effect.fn('writeFilesUnder')(function* (
+  directory: string,
+  files: Record.ReadonlyRecord<string, string>,
+  executableFilePaths: readonly string[] = [],
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
 
   yield* Effect.forEach(
-    Record.toEntries(configFiles),
+    Record.toEntries(files),
     ([filePath, content]) => {
-      const absoluteFilePath = path.join(configDirectory, filePath)
+      const absoluteFilePath = path.join(directory, filePath)
 
       return fileSystem.makeDirectory(path.dirname(absoluteFilePath), { recursive: true }).pipe(
         Effect.andThen(
@@ -100,7 +109,7 @@ export const commitToConfigSource = Effect.fn('commitToConfigSource')(function* 
   configFiles: Record.ReadonlyRecord<string, string>,
   executableFilePaths: readonly string[],
 ) {
-  yield* writeConfigFiles(sourceDirectory, configFiles, executableFilePaths)
+  yield* writeFilesUnder(sourceDirectory, configFiles, executableFilePaths)
   yield* runGit(['-C', sourceDirectory, 'add', '--all'])
   yield* runGit([
     '-C',

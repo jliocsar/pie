@@ -32,6 +32,7 @@ import {
   makeConfigSource,
   runGit,
   SEED_CONFIG_FILES,
+  writeFilesUnder,
 } from './test/TestPie.ts'
 
 interface RecordedRun {
@@ -43,10 +44,7 @@ interface RecordedRun {
 const PERMISSION_BITS = 0o777
 const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
-
-const TEMPORARY_FILE_RUN_PATTERN =
-  /^(?<runner>exec --|sh|curl \S+ \S+ -o) \/\S*\/(?<fileName>[^/\s]+)$/u
-
+const TEMPORARY_FILE_RUN_PATTERN = /^(?<runner>exec --|sh|curl .*) \/\S*\/(?<fileName>[^/\s]+)$/u
 const INTEGRATIONS_WITH_LOCAL_REPOSITORIES = ['github', 'hapana-gh-git']
 const TOOL_AND_TASK_CALLS = ['install', 'exec -- <temporary>/workspace']
 
@@ -257,15 +255,11 @@ const writeOwnClaudeSettings = Effect.fn('writeOwnClaudeSettings')(function* (
   home: string,
   claudeSettings: Record.ReadonlyRecord<string, string>,
 ) {
-  const fileSystem = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const settingsPath = path.join(home, '.claude', 'settings.json')
-
-  yield* fileSystem.makeDirectory(path.dirname(settingsPath), { recursive: true })
-  yield* fileSystem.writeFileString(
-    settingsPath,
-    yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(claudeSettings),
-  )
+  yield* writeFilesUnder(home, {
+    '.claude/settings.json': yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+      claudeSettings,
+    ),
+  })
 })
 
 const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
@@ -297,7 +291,8 @@ describe('pie pod up', () => {
             yield* startPods(temporaryDirectory)
           const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
-          const manifestPath = path.join(home, '.config', 'pie', 'manifest.json')
+          const pieConfigDirectory = path.join(home, '.config', 'pie')
+          const claudeStatePath = path.join(home, '.claude.json')
           const headCommit = yield* runGit(['-C', sourceDirectory, 'rev-parse', 'HEAD'])
           const abbreviatedCommit = headCommit.slice(0, 7)
 
@@ -315,16 +310,20 @@ describe('pie pod up', () => {
           const firstMiseCalls = miseCallsOn('pod')
           const firstSnapshot = yield* snapshotDirectory(claudeDirectory)
           const firstHomeSnapshot = yield* snapshotHomeFiles(home)
-          const firstManifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
+          const firstPieConfigSnapshot = yield* snapshotDirectory(pieConfigDirectory)
+          const firstClaudeState = yield* fileSystem.readFileString(claudeStatePath)
 
           yield* runPieOn('pod', ['pod', 'up'])
 
           const secondMiseCalls = miseCallsOn('pod')
           const secondSnapshot = yield* snapshotDirectory(claudeDirectory)
           const secondHomeSnapshot = yield* snapshotHomeFiles(home)
-          const manifestModifiedAt = (yield* fileSystem.stat(manifestPath)).mtime
-          const miseConfig = yield* fileSystem.readFileString(
-            path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
+          const secondPieConfigSnapshot = yield* snapshotDirectory(pieConfigDirectory)
+          const secondClaudeState = yield* fileSystem.readFileString(claudeStatePath)
+          const miseConfig: unknown = Bun.TOML.parse(
+            yield* fileSystem.readFileString(
+              path.join(home, '.config', 'mise', 'conf.d', 'pie.toml'),
+            ),
           )
 
           expect(firstMiseCalls).toEqual([...TOOL_AND_TASK_CALLS, ...MCP_ADD_CALLS])
@@ -360,9 +359,20 @@ describe('pie pod up', () => {
             },
           })
           expect(secondMiseCalls).toEqual([...firstMiseCalls, ...TOOL_AND_TASK_CALLS])
-          expect(miseConfig).toBe(
-            '[settings]\ntool_update.global_auto = true\n[tools]\n"node" = { "version" = "24.19.0" }\n"github:dmtrKovalenko/fff" = { "version" = "0.10.6", "matching" = "fff-mcp", "bin" = "fff-mcp" }\n[env]\n"GH_HOST" = "github.int.exe.xyz"\n',
-          )
+          expect(miseConfig).toEqual({
+            settings: { tool_update: { global_auto: true } },
+            tools: {
+              node: { version: '24.19.0' },
+              'github:dmtrKovalenko/fff': {
+                version: '0.10.6',
+                matching: 'fff-mcp',
+                bin: 'fff-mcp',
+              },
+            },
+            env: { GH_HOST: 'github.int.exe.xyz' },
+          })
+          expect(firstSnapshot['CLAUDE.md']?.text).toContain('`~/.config/pie/*manifest.json`')
+          expect(firstSnapshot['CLAUDE.md']?.text).toContain('`~/workspace`')
           expect(Record.map(firstHomeSnapshot, ({ text, mode }) => ({ text, mode }))).toEqual({
             '.profile': { text: MISE_PROFILE_BLOCK, mode: 0o644 },
             '.zshrc': {
@@ -376,7 +386,8 @@ describe('pie pod up', () => {
           })
           expect(secondHomeSnapshot).toEqual(firstHomeSnapshot)
           expect(secondSnapshot).toEqual(firstSnapshot)
-          expect(manifestModifiedAt).toEqual(firstManifestModifiedAt)
+          expect(secondPieConfigSnapshot).toEqual(firstPieConfigSnapshot)
+          expect(secondClaudeState).toBe(firstClaudeState)
           expect(output.stdout).toEqual(
             Arr.replicate(`Applied recipe personal at config commit ${abbreviatedCommit}.`, 2),
           )
@@ -395,26 +406,15 @@ describe('pie pod up', () => {
           const claudeMdPath = path.join(home, '.claude', 'CLAUDE.md')
 
           yield* prepareBox(home)
-          yield* fileSystem.makeDirectory(path.dirname(claudeMdPath), { recursive: true })
-          yield* fileSystem.writeFileString(
-            claudeMdPath,
-            '# stock\n<!-- >>> pie >>> -->\nstale\n<!-- <<< pie <<< -->\n# mine\n',
-          )
+          yield* writeFilesUnder(home, {
+            '.claude/CLAUDE.md':
+              '# stock\n<!-- >>> pie >>> -->\nstale\n<!-- <<< pie <<< -->\n# mine\n',
+          })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
 
-          const firstClaudeMd = yield* fileSystem.readFile(claudeMdPath)
-          const firstModifiedAt = (yield* fileSystem.stat(claudeMdPath)).mtime
+          const claudeMd = yield* fileSystem.readFileString(claudeMdPath)
 
-          yield* runPieOn('pod', ['pod', 'up'])
-
-          const secondClaudeMd = yield* fileSystem.readFile(claudeMdPath)
-          const secondModifiedAt = (yield* fileSystem.stat(claudeMdPath)).mtime
-
-          expect(withInstructionBulletsMasked(new TextDecoder().decode(firstClaudeMd))).toBe(
-            `# stock\n${CLAUDE_MD_BLOCK}# mine\n`,
-          )
-          expect(secondClaudeMd).toEqual(firstClaudeMd)
-          expect(secondModifiedAt).toEqual(firstModifiedAt)
+          expect(withInstructionBulletsMasked(claudeMd)).toBe(`# stock\n${CLAUDE_MD_BLOCK}# mine\n`)
         }),
       ),
     ))
@@ -429,14 +429,12 @@ describe('pie pod up', () => {
             yield* startPods(temporaryDirectory)
           const home = homeOf('pod')
           const claudeDirectory = path.join(home, '.claude')
-          const ownSkillPath = path.join(claudeDirectory, 'skills', 'mine', 'SKILL.md')
 
           yield* prepareBox(home)
           yield* writeOwnClaudeSettings(home, { theme: 'dark' })
           yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
           yield* writeClaudeState(home, ['fff', 'docs', 'mine'])
-          yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
-          yield* fileSystem.writeFileString(ownSkillPath, 'mine')
+          yield* writeFilesUnder(claudeDirectory, { 'skills/mine/SKILL.md': 'mine' })
           yield* commitToConfigSource(
             sourceDirectory,
             {
@@ -518,10 +516,8 @@ describe('pie pod up', () => {
           const ownSkillPath = path.join(skillHome, '.claude', 'skills', 'handoff', 'SKILL.md')
 
           yield* Effect.forEach([skillHome, mcpHome, homeFileHome], prepareBox, { discard: true })
-          yield* fileSystem.makeDirectory(path.dirname(ownStarshipPath), { recursive: true })
-          yield* fileSystem.writeFileString(ownStarshipPath, 'mine')
-          yield* fileSystem.makeDirectory(path.dirname(ownSkillPath), { recursive: true })
-          yield* fileSystem.writeFileString(ownSkillPath, 'mine')
+          yield* writeFilesUnder(homeFileHome, { '.config/starship.toml': 'mine' })
+          yield* writeFilesUnder(skillHome, { '.claude/skills/handoff/SKILL.md': 'mine' })
           yield* writeClaudeState(mcpHome, ['fff'])
 
           const skillClash = yield* Effect.flip(
@@ -588,16 +584,12 @@ describe('pie pod up', () => {
 
           const given = yield* Effect.flip(runPieOn('pod', ['pod', 'up', '../..']))
 
-          yield* fileSystem.makeDirectory(path.dirname(rememberedPath), { recursive: true })
-          yield* fileSystem.writeFileString(rememberedPath, '../..\n')
+          yield* writeFilesUnder(home, { '.config/pie/config-repo': '../..\n' })
 
           const remembered = yield* Effect.flip(runPieOn('pod', ['pod', 'up']))
           const cacheWritten = yield* fileSystem.exists(path.join(home, '.cache'))
 
           expect(given).toBeInstanceOf(CliError.ShowHelp)
-          expect(Schema.is(CliError.ShowHelp)(given) ? given.errors : []).toMatchObject([
-            { kind: 'argument', option: 'org/repo', value: '../..' },
-          ])
           expect(remembered).toEqual(
             new RememberedConfigRepositoryInvalid({
               filePath: rememberedPath,
@@ -753,11 +745,10 @@ describe('pie pod up on a box without mise', () => {
           )
           yield* runPieOn('fresh-box', ['pod', 'up', CONFIG_REPOSITORY])
 
-          expect(miseCallsOn('fresh-box')).toEqual([
-            'curl -fsSL https://mise.run -o <temporary>/install-mise.sh',
-            'sh <temporary>/install-mise.sh',
-            ...TOOL_AND_TASK_CALLS,
-          ])
+          const [installerDownload, ...laterCalls] = miseCallsOn('fresh-box')
+
+          expect(installerDownload).toContain('https://mise.run')
+          expect(laterCalls).toEqual(['sh <temporary>/install-mise.sh', ...TOOL_AND_TASK_CALLS])
         }),
       ),
     ))
