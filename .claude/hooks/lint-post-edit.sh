@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Enqueue the touched file for the per-turn lint check. The Stop hook runs oxlint
 # once over the deduped set, so repeated edits collapse into one report.
-# Never mutates — .husky/pre-commit is what fixes.
+# Never mutates — .githooks/pre-commit is what fixes.
 
 set -u
 

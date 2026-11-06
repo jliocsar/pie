@@ -18,7 +18,7 @@
     "pedantic": "error"
   },
 
-  "ignorePatterns": ["**/dist/**", "**/*.d.ts", ".claude/**", ".agents/**", ".husky/**"],
+  "ignorePatterns": ["**/dist/**", "**/*.d.ts", ".claude/**", ".agents/**"],
 
   // `jsPlugins` resolves a package specifier; `extends` above does not, hence
   // the path. The severities live in the package's own `preset.json`.

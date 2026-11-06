@@ -22,7 +22,7 @@ Everything is oxc + TypeScript 7. No ESLint, no dprint, no Prettier.
 bun install
 ```
 
-`prepare` runs `husky && effect-tsgo patch --oxlint`. That patch is what makes the Effect rules run at all, so an install you skip is an install whose lint is quietly weaker. It re-runs on every install and validates that `oxlint`, `oxlint-tsgolint` and `@effect/tsgo` are a supported triple.
+`prepare` points git at `.githooks` and runs `effect-tsgo patch --oxlint`. That patch is what makes the Effect rules run at all, so an install you skip is an install whose lint is quietly weaker. It re-runs on every install and validates that `oxlint`, `oxlint-tsgolint` and `@effect/tsgo` are a supported triple.
 
 Then gate a change with all four:
 

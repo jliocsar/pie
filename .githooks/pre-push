@@ -4,3 +4,4 @@
 
 node_modules/.bin/oxlint --deny-warnings --no-error-on-unmatched-pattern --disable-nested-config || exit 1
 bunx oxfmt --check --disable-nested-config || exit 1
+bun run test || exit 1
