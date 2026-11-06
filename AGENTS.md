@@ -404,8 +404,9 @@ flags a real name as a typo and nothing catches it.
 Every name that ends up in a path or a host is checked where it is decoded, never where it is used: the config repo, given or remembered, and a recipe repository are `<org>/<repo>` with no all-dots part, a repository's `dir` is relative with no empty, `.` or `..` segment, and an integration is a hostname label. Those checks are plain patterns, so the editor schemas carry them too. Recipe, repository and integration names are branded, since pie passes them side by side as strings.
 
 The loader is the only code that reads what a config means. It returns every byte `pod up` puts
-on the box, agents, each skill's files, tasks and home files, with their executable bit, so
-nothing past it reads the checkout again and `pie check` reads exactly what `pod up` does. It
+on the box: agents, each skill's files and home files with their executable bit, and tasks, which
+always run as executables. So
+nothing past it reads the checkout again, and `pie check` reads exactly what `pod up` does. It
 returns the recipes and the names on disk, and keeps its other tables to itself. The editor schemas
 are the only other code touching a config repo, reading and writing what only editors use: `#:schema`
 lines and `.pie/schema/`. `sync` and `check` hold neither half. One

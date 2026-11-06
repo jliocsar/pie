@@ -11,17 +11,13 @@ import * as Schema from 'effect/Schema'
 import {
   type ConfigNames,
   configFilePathOf,
-  Environment,
-  McpServerFile,
-  Recipe,
   ReferenceKind,
+  type TomlKind,
+  tomlSchemas,
 } from './ConfigRepo.ts'
 
 const LINE_BREAK_PATTERN = /\r?\n/u
 const SCHEMA_DIRECTORY = '.pie/schema'
-const TOML_SCHEMAS = { recipe: Recipe, environment: Environment, mcp: McpServerFile }
-
-type TomlKind = keyof typeof TOML_SCHEMAS
 
 export class SchemaLineMissing extends Schema.TaggedError<SchemaLineMissing>()(
   'SchemaLineMissing',
@@ -63,7 +59,7 @@ const renderJsonSchema = (schema: Schema.Top, configNames: ConfigNames) => {
 
 const renderSchemaFiles = (configNames: ConfigNames) =>
   Arr.map(
-    Record.toEntries(TOML_SCHEMAS),
+    Record.toEntries(tomlSchemas),
     ([tomlKind, schema]) =>
       [schemaFilePathOf(tomlKind), renderJsonSchema(schema, configNames)] as const,
   )
@@ -129,7 +125,7 @@ export class EditorSchemas extends Context.Service<EditorSchemas>()('pie/EditorS
       configNames: ConfigNames,
     ) {
       yield* Effect.forEach(
-        Record.keys(TOML_SCHEMAS),
+        Record.keys(tomlSchemas),
         (tomlKind) =>
           Effect.forEach(
             configNames[tomlKind],

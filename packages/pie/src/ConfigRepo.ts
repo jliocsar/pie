@@ -43,8 +43,9 @@ interface ClaudeFile extends ConfigFile {
   readonly claudePath: string
 }
 
-export interface TaskFile extends ConfigFile {
+export interface TaskFile {
   readonly taskName: string
+  readonly content: Uint8Array
 }
 
 interface HomeSetFile extends ConfigFile {
@@ -198,7 +199,7 @@ const ToolRequest = Schema.Union([
 
 export type ToolRequest = typeof ToolRequest.Type
 
-export const Environment = Schema.Struct({
+const Environment = Schema.Struct({
   extends: Schema.optionalKey(nameOf('environment')),
   label: Schema.String,
   tools: Schema.Record(Schema.String, ToolRequest).pipe(
@@ -294,7 +295,7 @@ const ClaudeRecipe = Schema.Struct({
   claude_md: namesOf('claude_md'),
 })
 
-export const Recipe = Schema.Struct({
+const Recipe = Schema.Struct({
   label: Schema.String,
   tags: withEmptyDefault(RequiredTagName),
   environment: nameOf('environment'),
@@ -317,7 +318,7 @@ const StdioMcpServer = Schema.Struct({
 
 const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
 
-export const McpServerFile = Schema.Union([
+const McpServerFile = Schema.Union([
   Schema.Struct({ url: HttpMcpServer.fields.url }).pipe(
     Schema.decodeTo(
       HttpMcpServer,
@@ -361,6 +362,10 @@ const configEntryPathOf = (configKind: ConfigKind, name: string) =>
 
 export const configFilePathOf = (configKind: ConfigKind, name: string) =>
   `${configEntryPathOf(configKind, name)}${CONFIG_LAYOUT[configKind].indexPath}`
+
+export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServerFile }
+
+export type TomlKind = keyof typeof tomlSchemas
 
 const agentClaudePathOf = (agentName: string) => `agents/${agentName}.md`
 
@@ -735,7 +740,7 @@ const resolveTasks = (
         'task',
         taskFiles,
       )(taskName),
-      (taskFile): TaskFile => ({ taskName, ...taskFile }),
+      (taskFile): TaskFile => ({ taskName, content: taskFile.content }),
     ),
   )
 
@@ -918,7 +923,7 @@ const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
     ),
     environments: yield* loadEach(
       configNames.environment,
-      loadDecoded(configDirectory, 'environment', Bun.TOML, Environment),
+      loadDecoded(configDirectory, 'environment', Bun.TOML, tomlSchemas.environment),
     ),
   }
   const config: Config = {
@@ -929,11 +934,11 @@ const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
     ),
     recipes: yield* loadEach(
       configNames.recipe,
-      loadDecoded(configDirectory, 'recipe', Bun.TOML, Recipe),
+      loadDecoded(configDirectory, 'recipe', Bun.TOML, tomlSchemas.recipe),
     ),
     mcpServers: yield* loadEach(
       configNames.mcp,
-      loadDecoded(configDirectory, 'mcp', Bun.TOML, McpServerFile),
+      loadDecoded(configDirectory, 'mcp', Bun.TOML, tomlSchemas.mcp),
     ),
     agents: yield* loadEach(configNames.agent, (agentName) =>
       loadAgent(configDirectory, agentName),
