@@ -239,10 +239,12 @@ export class Box extends Context.Service<Box>()('pie/Box', {
 
     const writeOwned = Effect.fn('Box.writeOwned')(function* <Manifest, Failure, Requirements>(
       manifestJson: Schema.Codec<Manifest, string>,
-      manifestPath: string,
+      manifestFileName: string,
       manifests: OwnershipManifests<Manifest>,
       applyChanges: Effect.Effect<void, Failure, Requirements>,
     ) {
+      const manifestPath = pieConfigPathOf(manifestFileName)
+
       yield* writeJsonFile(manifestJson, manifestPath, manifests.union)
       yield* applyChanges
       yield* writeJsonFile(manifestJson, manifestPath, manifests.final)

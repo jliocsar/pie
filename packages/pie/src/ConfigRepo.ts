@@ -17,6 +17,7 @@ import {
   isRecipeName,
   recipeTagOf,
   RequiredTagName,
+  TAG_ALPHABET,
 } from './ExeDev.ts'
 import { APPEND_ONLY_HOME_PATHS, BOX_LAYOUT, homePathOf, PIE_OWNED_HOME_PATHS } from './Box.ts'
 
@@ -211,7 +212,7 @@ const Environment = Schema.Struct({
   tasks: Schema.optionalKey(Schema.Array(nameOf('task'))),
 })
 
-export type Environment = typeof Environment.Type
+type Environment = typeof Environment.Type
 
 export const RepositoryName = Schema.String.check(
   Schema.isPattern(REPOSITORY_NAME_PATTERN, {
@@ -306,7 +307,7 @@ const Recipe = Schema.Struct({
   claude: ClaudeRecipe.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 })
 
-export type Recipe = typeof Recipe.Type
+type Recipe = typeof Recipe.Type
 
 const HttpMcpServer = Schema.Struct({ type: Schema.Literal('http'), url: Schema.String })
 
@@ -469,7 +470,7 @@ export class RecipeNameNotTaggable extends Schema.TaggedError<RecipeNameNotTagga
   },
 ) {
   override get message(): string {
-    return `${configFilePathOf('recipe', this.recipeName)} can't name a recipe, since ${recipeTagOf(this.recipeName)} isn't a valid exe.dev tag. Rename it using only a-z, 0-9, _ and -.`
+    return `${configFilePathOf('recipe', this.recipeName)} can't name a recipe, since ${recipeTagOf(this.recipeName)} isn't a valid exe.dev tag. Rename it using only ${TAG_ALPHABET}.`
   }
 }
 

@@ -237,7 +237,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
 
       yield* box.writeOwned(
         ManifestJson,
-        manifestPath,
+        MANIFEST_FILE_NAME,
         {
           union: {
             claudeFiles: Arr.union(previousManifest.claudeFiles, claudeFilePaths),

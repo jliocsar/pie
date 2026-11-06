@@ -363,7 +363,7 @@ exe.dev.
 A recipe's `tags` lists more tags its VMs must carry, so an integration several recipes share
 attaches once, to a tag of its own, instead of to each recipe's tag. pie still never writes one: the
 VM holds no exe.dev credentials, so it can't tag itself. `pod up` compares the list with the VM's
-tags and fails before anything past pie's own checkout changes when one is missing, printing the
+tags and fails with only pie's own checkout and remembered repo changed when one is missing, printing the
 `ssh exe.dev tag <vm> <tag> …` line that adds them, with the VM's name from reflection. The laptop
 gives a new VM every tag at `ssh exe.dev new --tag`. `pie check` sees no VM, so it checks only that
 each entry is a valid exe.dev tag name and neither `pie` nor a `pie-recipe-` tag: the VM carries
@@ -466,7 +466,7 @@ updates an exact version.
 ## Pod up
 
 On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
-already exists without that fails `pod up` before anything past pie's own checkout changes, and so does a user MCP server
+already exists without that fails `pod up` with only pie's own checkout and remembered repo changed, and so does a user MCP server
 of the same name that pie didn't add. The manifest records the union of old and new before any
 write, so a run that dies halfway never leaves pie's own files looking like someone else's.
 

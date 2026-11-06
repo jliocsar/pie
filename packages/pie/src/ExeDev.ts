@@ -13,13 +13,14 @@ const RECIPE_TAG_PREFIX = 'pie-recipe-'
 const REFLECTION_INDEX_URL = 'https://reflection.int.exe.xyz/'
 const REFLECTION_TAGS_URL = 'https://reflection.int.exe.xyz/tags'
 
+export const TAG_ALPHABET = 'a-z, 0-9, _ and -'
 export const POD_TAG = 'pie'
 
 const VmIndex = Schema.Struct({ name: Schema.String })
 const VmTags = Schema.Struct({ tags: Schema.Array(Schema.String) })
 
 const TagName = Schema.String.check(
-  Schema.isPattern(TAG_PATTERN, { message: 'An exe.dev tag uses only a-z, 0-9, _ and -.' }),
+  Schema.isPattern(TAG_PATTERN, { message: `An exe.dev tag uses only ${TAG_ALPHABET}.` }),
 )
 
 export const RecipeName = TagName.pipe(Schema.brand('RecipeName'))

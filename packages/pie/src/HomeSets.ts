@@ -125,7 +125,7 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
 
       yield* box.writeOwned(
         HomeManifestJson,
-        manifestPath,
+        HOME_MANIFEST_FILE_NAME,
         {
           union: {
             copiedFiles: Arr.union(previousHomeManifest.copiedFiles, homeManifest.copiedFiles),
