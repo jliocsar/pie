@@ -13,7 +13,7 @@ type CommandLine = readonly [command: string, ...commandArguments: string[]]
 
 type Environment = Record.ReadonlyRecord<string, string>
 
-export class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
+class CommandFailed extends Schema.TaggedError<CommandFailed>()('CommandFailed', {
   commandLine: Schema.Array(Schema.String),
   exitCode: Schema.Int,
   commandOutput: Schema.String,

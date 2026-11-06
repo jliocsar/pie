@@ -29,7 +29,7 @@ const PodLayer = Layer.mergeAll(Git.layer, Claude.layer, HomeSets.layer).pipe(
   Layer.provideMerge(ExeDevAndMiseLayer),
 )
 
-export class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
+class RecipeNotFound extends Schema.TaggedError<RecipeNotFound>()('RecipeNotFound', {
   recipeName: RecipeName,
 }) {
   override get message(): string {

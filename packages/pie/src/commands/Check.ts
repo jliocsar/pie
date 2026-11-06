@@ -8,7 +8,7 @@ import * as Command from 'effect/unstable/cli/Command'
 import { ConfigRepo, configFilePathOf } from '../ConfigRepo.ts'
 import { EditorSchemas } from '../EditorSchemas.ts'
 
-export class RecipesMissing extends Schema.TaggedError<RecipesMissing>()('RecipesMissing', {
+class RecipesMissing extends Schema.TaggedError<RecipesMissing>()('RecipesMissing', {
   configDirectory: Schema.String,
 }) {
   override get message(): string {

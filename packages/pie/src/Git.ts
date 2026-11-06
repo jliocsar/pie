@@ -27,7 +27,7 @@ interface GitRoute {
 const REMEMBERED_CONFIG_REPOSITORY_FILE_NAME = 'config-repo'
 const GIT_ENVIRONMENT = { GIT_TERMINAL_PROMPT: '0' }
 
-export class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepositoryUnknown>()(
+class ConfigRepositoryUnknown extends Schema.TaggedError<ConfigRepositoryUnknown>()(
   'ConfigRepositoryUnknown',
   {},
 ) {

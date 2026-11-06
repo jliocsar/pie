@@ -56,7 +56,7 @@ export const repositoryUrlOf = (integrationName: IntegrationName, repositoryName
 const listOf = (names: readonly string[]) =>
   Arr.isReadonlyArrayNonEmpty(names) ? names.join(', ') : 'none'
 
-export class ReflectionUnreadable extends Schema.TaggedError<ReflectionUnreadable>()(
+class ReflectionUnreadable extends Schema.TaggedError<ReflectionUnreadable>()(
   'ReflectionUnreadable',
   { reflectionUrl: Schema.String, failureMessage: Schema.String },
 ) {

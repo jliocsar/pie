@@ -475,6 +475,35 @@ describe('pie pod up', () => {
       ),
     ))
 
+  test('an edited MCP server is removed and added again, and an unchanged one is left alone', () =>
+    bunServicesRuntime.runPromise(
+      inFreshDirectory((temporaryDirectory) =>
+        Effect.gen(function* () {
+          const { homeOf, miseCallsOn, runPieOn, sourceDirectory } =
+            yield* startPods(temporaryDirectory)
+          const home = homeOf('pod')
+
+          yield* prepareBox(home)
+          yield* runPieOn('pod', ['pod', 'up', CONFIG_REPOSITORY])
+          yield* writeClaudeState(home, ['fff', 'docs'])
+          yield* commitToConfigSource(
+            sourceDirectory,
+            { 'mcp/docs.toml': 'url = "https://docs.example/v2"\n' },
+            [],
+          )
+          yield* runPieOn('pod', ['pod', 'up'])
+
+          expect(miseCallsOn('pod')).toEqual([
+            ...TOOL_AND_TASK_CALLS,
+            ...MCP_ADD_CALLS,
+            ...TOOL_AND_TASK_CALLS,
+            'exec -- claude mcp remove --scope user docs',
+            'exec -- claude mcp add-json --scope user docs {"type":"http","url":"https://docs.example/v2"}',
+          ])
+        }),
+      ),
+    ))
+
   test("fails before changing anything when a skill, an MCP or a home file of the same name isn't pie's", () =>
     bunServicesRuntime.runPromise(
       inFreshDirectory((temporaryDirectory) =>

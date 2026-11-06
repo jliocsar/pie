@@ -10,8 +10,9 @@ import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
 import {
+  claudeEntryOf,
   ClaudeSettings,
-  McpServer,
+  directoriesInsideClaudeEntryOf,
   type RepositoryName,
   type ResolvedRecipe,
 } from './ConfigRepo.ts'
@@ -26,7 +27,6 @@ interface ClaudeState {
   readonly claudeMcpNames: readonly string[]
 }
 
-const CLAUDE_ENTRY_SEGMENT_COUNT = 2
 const MANIFEST_FILE_NAME = 'manifest.json'
 const SETTINGS_FILE_NAME = 'settings.json'
 const INSTRUCTIONS_FILE_NAME = 'CLAUDE.md'
@@ -34,7 +34,7 @@ const INSTRUCTIONS_FILE_NAME = 'CLAUDE.md'
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
   claudeSettingsKeys: Schema.Array(Schema.String),
-  mcpServers: Schema.Record(Schema.String, McpServer),
+  mcpServers: Schema.Record(Schema.String, Schema.Json),
 })
 
 type Manifest = typeof Manifest.Type
@@ -50,8 +50,6 @@ const ClaudeStateJson = Schema.fromJsonString(
     mcpServers: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
   }),
 )
-
-const isSameMcpServer = Schema.toEquivalence(McpServer)
 
 export class ClaudeEntryNotPies extends Schema.TaggedError<ClaudeEntryNotPies>()(
   'ClaudeEntryNotPies',
@@ -73,22 +71,7 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
 const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
   Arr.map(claudeConfig.files, (claudeFile) => claudeFile.claudePath)
 
-const entryOf = (claudeFilePath: string) =>
-  Arr.take(claudeFilePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
-
-const directoriesInsideEntryOf = (claudeFilePath: string) => {
-  const segments = claudeFilePath.split('/')
-
-  return pipe(
-    segments,
-    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
-    Arr.filter(
-      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
-    ),
-    Arr.map((prefix) => prefix.join('/')),
-    Arr.reverse,
-  )
-}
+const mcpServerJsonOf = (mcpServer: Schema.Json) => JSON.stringify(mcpServer)
 
 const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
   `## pie
@@ -123,10 +106,10 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       claudeConfig: ClaudeConfig,
       { previousManifest, claudeMcpNames }: ClaudeState,
     ) {
-      const ownedEntries = Arr.map(previousManifest.claudeFiles, entryOf)
+      const ownedEntries = Arr.map(previousManifest.claudeFiles, claudeEntryOf)
       const newEntries = pipe(
         claudeFilePathsOf(claudeConfig),
-        Arr.map(entryOf),
+        Arr.map(claudeEntryOf),
         Arr.dedupe,
         Arr.difference(ownedEntries),
       )
@@ -173,7 +156,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
     const removeStaleFile = Effect.fn('Claude.removeStaleFile')(function* (claudeFilePath: string) {
       yield* fileSystem.remove(path.join(claudeDirectory, claudeFilePath), { force: true })
       yield* Effect.forEach(
-        directoriesInsideEntryOf(claudeFilePath),
+        directoriesInsideClaudeEntryOf(claudeFilePath),
         (directory) => removeEmptyDirectory(path.join(claudeDirectory, directory)),
         { discard: true },
       )
@@ -191,8 +174,8 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
           yield* runClaudeMcp(['remove', '--scope', 'user', mcpName])
         }
       })
-      const addMcpServer = (mcpName: string, mcpServer: McpServer) =>
-        runClaudeMcp(['add-json', '--scope', 'user', mcpName, JSON.stringify(mcpServer)])
+      const addMcpServer = (mcpName: string, mcpServerJson: string) =>
+        runClaudeMcp(['add-json', '--scope', 'user', mcpName, mcpServerJson])
       const staleMcpNames = Arr.difference(
         Record.keys(previousManifest.mcpServers),
         Record.keys(mcpServers),
@@ -201,15 +184,17 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
       yield* Effect.forEach(
         Record.toEntries(mcpServers),
         ([mcpName, mcpServer]) => {
+          const mcpServerJson = mcpServerJsonOf(mcpServer)
           const alreadyAdded =
             Arr.contains(claudeMcpNames, mcpName) &&
-            Option.exists(Record.get(previousManifest.mcpServers, mcpName), (previousMcpServer) =>
-              isSameMcpServer(previousMcpServer, mcpServer),
+            Option.exists(
+              Record.get(previousManifest.mcpServers, mcpName),
+              (previousMcpServer) => mcpServerJsonOf(previousMcpServer) === mcpServerJson,
             )
 
           return alreadyAdded
             ? Effect.void
-            : removeMcpServer(mcpName).pipe(Effect.andThen(addMcpServer(mcpName, mcpServer)))
+            : removeMcpServer(mcpName).pipe(Effect.andThen(addMcpServer(mcpName, mcpServerJson)))
         },
         { discard: true },
       )
@@ -313,7 +298,9 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
 
       return {
         apply: applyFiles(claudeConfig, claudeState).pipe(
-          Effect.andThen(writeInstructions(recipeName, configRepository, claudeConfig.claude_md)),
+          Effect.andThen(
+            writeInstructions(recipeName, configRepository, claudeConfig.instructionTexts),
+          ),
         ),
       }
     })

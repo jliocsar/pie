@@ -170,7 +170,8 @@ to it. The box resolves that table once, against HOME and the XDG dirs it reads 
 refusal of a home set landing on pie's own files derives from the same table, and so do the
 `$HOME/…` lines pie writes into shell files and the paths its Claude instructions name, so none of
 them can drift from where pie actually writes. The loader checks against the XDG defaults rather
-than the box's own dirs, since `pie check` runs off the box. What lies inside one of those places
+than the box's own dirs, since `pie check` runs off the box. Claude's instructions name those
+defaults too, so on a box setting `XDG_CONFIG_HOME` the manifests aren't where they say. What lies inside one of those places
 belongs to the module that writes it, so below that level there's still no shared paths object.
 
 Every outside system is a service whose hand-written layer leaves what the service depends on
@@ -362,7 +363,7 @@ exe.dev.
 A recipe's `tags` lists more tags its VMs must carry, so an integration several recipes share
 attaches once, to a tag of its own, instead of to each recipe's tag. pie still never writes one: the
 VM holds no exe.dev credentials, so it can't tag itself. `pod up` compares the list with the VM's
-tags and fails before anything changes when one is missing, printing the
+tags and fails before anything past pie's own checkout changes when one is missing, printing the
 `ssh exe.dev tag <vm> <tag> …` line that adds them, with the VM's name from reflection. The laptop
 gives a new VM every tag at `ssh exe.dev new --tag`. `pie check` sees no VM, so it checks only that
 each entry is a valid exe.dev tag name and neither `pie` nor a `pie-recipe-` tag: the VM carries
@@ -396,7 +397,7 @@ tag for the rest.
 
 `pie check` runs the loader `pod up` runs, so the two never disagree about what's valid. The loader
 also refuses a recipe whose file name can't follow `pie-recipe-` in an exe.dev tag. On top of it,
-`check` holds what only editors need: each TOML file's first line is its `#:schema` line, and
+`check` adds what only editors need: each TOML file's first line is its `#:schema` line, and
 `.pie/schema/` matches what `pie sync` would write now. Without that second part, a stale enum
 flags a real name as a typo and nothing catches it.
 
@@ -409,7 +410,7 @@ returns the recipes and the names on disk, and keeps its other tables to itself.
 are the only other code touching a config repo, reading and writing what only editors use: `#:schema`
 lines and `.pie/schema/`. `sync` and `check` hold neither half. One
 table holds each kind's directory, extension and entry type, recipes included, and builds its
-paths, lists its names and loads it. A path bound for the box says its root in its field name,
+paths and lists its names. A path bound for the box says its root in its field name,
 home-relative, `.claude`-relative or a task's name, so two roots never share one field.
 
 The schemas come from the Effect schemas. Each name field carries its reference kind as an
@@ -492,6 +493,10 @@ A marked block ends at the first end marker after its start, so text pie puts in
 carry that block's own end marker, whether it comes from a `claude_md` file or an appended home
 file. One that does cuts the block short, and every later `up` writes the tail again, growing the
 file. Nothing rejects it: the limit is shared by every marked block, and no config has hit it.
+
+The manifest keeps each MCP server as plain JSON and compares the text pie hands to `claude`, never
+through the config's schema. A change to that schema then re-adds servers instead of failing on
+every existing manifest.
 
 Pie never writes `~/.claude.json`: it is Claude's live state, rewritten by every running session.
 Pie only reads it for server names and runs `claude mcp add-json` and `claude mcp remove` at user

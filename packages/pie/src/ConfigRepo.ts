@@ -39,7 +39,7 @@ interface ConfigFile {
   readonly executable: boolean
 }
 
-export interface ClaudeFile extends ConfigFile {
+interface ClaudeFile extends ConfigFile {
   readonly claudePath: string
 }
 
@@ -60,6 +60,19 @@ export interface ResolvedEnvironment {
   readonly tools: Record.ReadonlyRecord<string, ToolRequest>
   readonly env: Record.ReadonlyRecord<string, string>
   readonly tasks: readonly TaskFile[]
+}
+
+export interface ResolvedRecipe {
+  readonly tags: readonly string[]
+  readonly environment: ResolvedEnvironment
+  readonly repositories: readonly Repository[]
+  readonly home: readonly HomeFile[]
+  readonly claude: {
+    readonly files: readonly ClaudeFile[]
+    readonly settings: ClaudeSettings
+    readonly mcpServers: Record.ReadonlyRecord<string, McpServer>
+    readonly instructionTexts: readonly string[]
+  }
 }
 
 interface EnvironmentSources {
@@ -83,6 +96,7 @@ type EnvironmentResolution = Effect.Effect<
   ConfigReferenceMissing | EnvironmentExtendsCycle
 >
 
+const CLAUDE_ENTRY_SEGMENT_COUNT = 2
 const EXECUTABLE_MODE_BITS = 0o111
 const REPOSITORY_NAME_PATTERN = /^\.*[\w-][\w.-]*\/\.*[\w-][\w.-]*$/u
 const REPOSITORY_DIRECTORY_PATTERN = /^\.*[^/.][^/]*(?:\/\.*[^/.][^/]*)*$/u
@@ -301,7 +315,7 @@ const StdioMcpServer = Schema.Struct({
   args: Schema.Array(Schema.String),
 })
 
-export const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
+const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
 
 export const McpServerFile = Schema.Union([
   Schema.Struct({ url: HttpMcpServer.fields.url }).pipe(
@@ -347,6 +361,28 @@ const configEntryPathOf = (configKind: ConfigKind, name: string) =>
 
 export const configFilePathOf = (configKind: ConfigKind, name: string) =>
   `${configEntryPathOf(configKind, name)}${CONFIG_LAYOUT[configKind].indexPath}`
+
+const agentClaudePathOf = (agentName: string) => `agents/${agentName}.md`
+
+const skillClaudePathOf = (skillName: string, skillPath: string) =>
+  `skills/${skillName}/${skillPath}`
+
+export const claudeEntryOf = (claudePath: string) =>
+  Arr.take(claudePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
+
+export const directoriesInsideClaudeEntryOf = (claudePath: string) => {
+  const segments = claudePath.split('/')
+
+  return pipe(
+    segments,
+    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
+    Arr.filter(
+      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
+    ),
+    Arr.map((prefix) => prefix.join('/')),
+    Arr.reverse,
+  )
+}
 
 export class ConfigFileUnparseable extends Schema.TaggedError<ConfigFileUnparseable>()(
   'ConfigFileUnparseable',
@@ -614,7 +650,7 @@ const loadAgent = Effect.fn('loadAgent')(function* (configDirectory: string, age
 
   yield* extractFrontmatter(filePath, new TextDecoder().decode(agentFile.content))
 
-  const claudeFile: ClaudeFile = { claudePath: `agents/${agentName}.md`, ...agentFile }
+  const claudeFile: ClaudeFile = { claudePath: agentClaudePathOf(agentName), ...agentFile }
 
   return claudeFile
 })
@@ -640,7 +676,7 @@ const loadSkill = Effect.fn('loadSkill')(function* (configDirectory: string, ski
   )
 
   return Arr.map(skillFiles, ([skillPath, skillFile]): ClaudeFile => ({
-    claudePath: `skills/${skillName}/${skillPath}`,
+    claudePath: skillClaudePathOf(skillName, skillPath),
     ...skillFile,
   }))
 })
@@ -858,7 +894,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     },
   )
 
-  return {
+  const resolvedRecipe: ResolvedRecipe = {
     tags: recipe.tags,
     environment,
     repositories: recipe.repositories,
@@ -867,12 +903,12 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
       files: [...agentFiles, ...Arr.flatten(skillFiles)],
       settings: claudeSettings,
       mcpServers,
-      claude_md: claudeMdTexts,
+      instructionTexts: claudeMdTexts,
     },
   }
-})
 
-export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
+  return resolvedRecipe
+})
 
 const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)

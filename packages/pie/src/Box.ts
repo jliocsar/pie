@@ -62,10 +62,10 @@ export const MARKDOWN_BLOCK_MARKERS: BlockMarkers = [
   '<!-- <<< pie <<< -->\n',
 ]
 
-export class PodFileUnreadable extends Schema.TaggedError<PodFileUnreadable>()(
-  'PodFileUnreadable',
-  { filePath: Schema.String, issueMessage: Schema.String },
-) {
+class PodFileUnreadable extends Schema.TaggedError<PodFileUnreadable>()('PodFileUnreadable', {
+  filePath: Schema.String,
+  issueMessage: Schema.String,
+}) {
   override get message(): string {
     return `${this.filePath} isn't the JSON pie expected: ${this.issueMessage}`
   }

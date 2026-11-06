@@ -157,7 +157,7 @@ describe('loadConfig', () => {
           ['skills/handoff/SKILL.md', VALID_CONFIG_FILES['skills/handoff/SKILL.md']],
           ['skills/handoff/scripts/greet', VALID_CONFIG_FILES['skills/handoff/scripts/greet']],
         ])
-        expect(recipe.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
+        expect(recipe.claude.instructionTexts).toEqual(['## Work\n', '## GCP\n'])
         expect(recipe.claude.mcpServers).toEqual({
           executor: { type: 'http', url: 'http://executor.int.exe.xyz/mcp' },
           fff: { type: 'stdio', command: 'fff-mcp', args: [] },
@@ -179,7 +179,7 @@ describe('loadConfig', () => {
           tags: [],
           repositories: [],
           home: [],
-          claude: { files: [], settings: {}, mcpServers: {}, claude_md: [] },
+          claude: { files: [], settings: {}, mcpServers: {}, instructionTexts: [] },
         })
       }),
     ))
