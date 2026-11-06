@@ -257,7 +257,7 @@ access goes through a record keyed by the whole union, so a new variant fails to
 falling out of a refusal or a write (measured: adding one reported each record).
 
 Nested `reason` unions too — `SqlError`/`AiError` put the variant in `reason`, out of the failure
-channel, so `catchTag` misses it and some `effect-best-practices` snippets write `error.reason._tag`.
+channel, so `catchTag` misses it.
 Replacements per `references/core/error-handling.md`: `Effect.catchReason`, `Effect.catchReasons`,
 `Effect.unwrapReason` + `catchTags`, or `Match.value(error.reason).pipe(Match.tagsExhaustive({…}))`.
 Disable-comment only after all four fail; say which in the comment.
