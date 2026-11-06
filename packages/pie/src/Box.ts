@@ -57,11 +57,6 @@ export const BOX_LAYOUT = {
   zshrc: { root: 'home', relativePath: '.zshrc', access: 'appended' },
 } as const satisfies Record.ReadonlyRecord<string, BoxLocation>
 
-export const MARKDOWN_BLOCK_MARKERS: BlockMarkers = [
-  '<!-- >>> pie >>> -->\n',
-  '<!-- <<< pie <<< -->\n',
-]
-
 class PodFileUnreadable extends Schema.TaggedError<PodFileUnreadable>()('PodFileUnreadable', {
   filePath: Schema.String,
   issueMessage: Schema.String,
@@ -176,6 +171,16 @@ export class Box extends Context.Service<Box>()('pie/Box', {
         executable ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE,
       )
 
+    const pieConfigPathOf = (fileName: string) => path.join(paths.pieConfigDirectory, fileName)
+
+    const writePieConfigFile = Effect.fn('Box.writePieConfigFile')(function* (
+      fileName: string,
+      text: string,
+    ) {
+      yield* makePieConfigDirectory
+      yield* writeFileIfChanged(pieConfigPathOf(fileName), { content: text, executable: false })
+    })
+
     const updateTextFile = Effect.fn('Box.updateTextFile')(function* (
       filePath: string,
       updateText: (text: string) => string,
@@ -246,7 +251,8 @@ export class Box extends Context.Service<Box>()('pie/Box', {
     return {
       home,
       paths,
-      makePieConfigDirectory,
+      pieConfigPathOf,
+      writePieConfigFile,
       writeFileIfChanged,
       updateTextFile,
       readJsonFile,

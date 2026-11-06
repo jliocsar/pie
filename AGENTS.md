@@ -465,7 +465,7 @@ updates an exact version.
 ## Pod up
 
 On the box, pie owns an agent or a skill only when its manifest lists a file inside it. One that
-already exists without that fails `pod up` before anything changes, and so does a user MCP server
+already exists without that fails `pod up` before anything past pie's own checkout changes, and so does a user MCP server
 of the same name that pie didn't add. The manifest records the union of old and new before any
 write, so a run that dies halfway never leaves pie's own files looking like someone else's.
 

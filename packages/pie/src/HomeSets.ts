@@ -54,7 +54,7 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
     const box = yield* Box
     const fileSystem = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const manifestPath = path.join(box.paths.pieConfigDirectory, HOME_MANIFEST_FILE_NAME)
+    const manifestPath = box.pieConfigPathOf(HOME_MANIFEST_FILE_NAME)
 
     const readManifest = Effect.fn('HomeSets.readManifest')(function* () {
       return yield* box.readJsonFile(HomeManifestJson, manifestPath, EMPTY_HOME_MANIFEST)

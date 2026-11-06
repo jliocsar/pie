@@ -18,7 +18,7 @@ import {
 } from './ConfigRepo.ts'
 import type { RecipeName } from './ExeDev.ts'
 import { Mise } from './Mise.ts'
-import { BOX_LAYOUT, Box, homePathOf, MARKDOWN_BLOCK_MARKERS, withBlock } from './Box.ts'
+import { BOX_LAYOUT, Box, homePathOf, withBlock } from './Box.ts'
 
 type ClaudeConfig = ResolvedRecipe['claude']
 
@@ -30,6 +30,7 @@ interface ClaudeState {
 const MANIFEST_FILE_NAME = 'manifest.json'
 const SETTINGS_FILE_NAME = 'settings.json'
 const INSTRUCTIONS_FILE_NAME = 'CLAUDE.md'
+const MARKDOWN_BLOCK_MARKERS = ['<!-- >>> pie >>> -->\n', '<!-- <<< pie <<< -->\n'] as const
 
 const Manifest = Schema.Struct({
   claudeFiles: Schema.Array(Schema.String),
@@ -73,7 +74,7 @@ const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>
 
 const mcpServerJsonOf = (mcpServer: Schema.Json) => JSON.stringify(mcpServer)
 
-const claudeInstructionsOf = (recipeName: string, configRepository: string) =>
+const claudeInstructionsOf = (recipeName: RecipeName, configRepository: RepositoryName) =>
   `## pie
 
 This VM is a pie pod: recipe \`${recipeName}\` from \`${configRepository}\`.
@@ -93,7 +94,7 @@ export class Claude extends Context.Service<Claude>()('pie/Claude', {
     const mise = yield* Mise
     const claudeDirectory = box.paths.claudeDirectory
     const settingsPath = path.join(claudeDirectory, SETTINGS_FILE_NAME)
-    const manifestPath = path.join(box.paths.pieConfigDirectory, MANIFEST_FILE_NAME)
+    const manifestPath = box.pieConfigPathOf(MANIFEST_FILE_NAME)
 
     const readState = Effect.fn('Claude.readState')(function* () {
       const previousManifest = yield* box.readJsonFile(ManifestJson, manifestPath, EMPTY_MANIFEST)

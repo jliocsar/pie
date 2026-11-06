@@ -345,7 +345,7 @@ export const McpServerFile = Schema.Union([
   ),
 ])
 
-export type McpServer = typeof McpServer.Type
+type McpServer = typeof McpServer.Type
 
 const Frontmatter = Schema.Struct({
   name: Schema.NonEmptyString,

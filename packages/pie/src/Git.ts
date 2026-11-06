@@ -19,7 +19,7 @@ import { Box } from './Box.ts'
 import { Process } from './Process.ts'
 
 interface GitRoute {
-  readonly repositoryName: string
+  readonly repositoryName: RepositoryName
   readonly integrationName: IntegrationName
   readonly integrationTag: string
 }
@@ -70,10 +70,7 @@ export class Git extends Context.Service<Git>()('pie/Git', {
     const path = yield* Path.Path
     const processes = yield* Process
     const box = yield* Box
-    const rememberedPath = path.join(
-      box.paths.pieConfigDirectory,
-      REMEMBERED_CONFIG_REPOSITORY_FILE_NAME,
-    )
+    const rememberedPath = box.pieConfigPathOf(REMEMBERED_CONFIG_REPOSITORY_FILE_NAME)
 
     const runGit = (gitArguments: readonly string[]) =>
       processes.capture(['git', ...gitArguments], GIT_ENVIRONMENT)
@@ -123,11 +120,7 @@ export class Git extends Context.Service<Git>()('pie/Git', {
     })
 
     const remember = Effect.fn('Git.remember')(function* (repositoryName: RepositoryName) {
-      yield* box.makePieConfigDirectory
-      yield* box.writeFileIfChanged(rememberedPath, {
-        content: `${repositoryName}\n`,
-        executable: false,
-      })
+      yield* box.writePieConfigFile(REMEMBERED_CONFIG_REPOSITORY_FILE_NAME, `${repositoryName}\n`)
     })
 
     const syncConfigCheckout = Effect.fn('Git.syncConfigCheckout')(function* (
