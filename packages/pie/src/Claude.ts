@@ -9,13 +9,7 @@ import * as Path from 'effect/Path'
 import * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import * as Str from 'effect/String'
-import {
-  claudeEntryOf,
-  ClaudeSettings,
-  directoriesInsideClaudeEntryOf,
-  type RepositoryName,
-  type ResolvedRecipe,
-} from './ConfigRepo.ts'
+import { ClaudeSettings, type RepositoryName, type ResolvedRecipe } from './ConfigRepo.ts'
 import type { RecipeName } from './ExeDev.ts'
 import { Mise } from './Mise.ts'
 import { BOX_LAYOUT, Box, homePathOf, withBlock } from './Box.ts'
@@ -27,6 +21,7 @@ interface ClaudeState {
   readonly claudeMcpNames: readonly string[]
 }
 
+const CLAUDE_ENTRY_SEGMENT_COUNT = 2
 const MANIFEST_FILE_NAME = 'manifest.json'
 const SETTINGS_FILE_NAME = 'settings.json'
 const INSTRUCTIONS_FILE_NAME = 'CLAUDE.md'
@@ -67,6 +62,23 @@ export class McpServerNotPies extends Schema.TaggedError<McpServerNotPies>()('Mc
   override get message(): string {
     return `Claude already has a user MCP server named ${this.mcpName}, and pie didn't add it. Remove it with \`claude mcp remove --scope user ${this.mcpName}\`, then run \`pie pod up\` again.`
   }
+}
+
+const claudeEntryOf = (claudePath: string) =>
+  Arr.take(claudePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
+
+const directoriesInsideClaudeEntryOf = (claudePath: string) => {
+  const segments = claudePath.split('/')
+
+  return pipe(
+    segments,
+    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
+    Arr.filter(
+      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
+    ),
+    Arr.map((prefix) => prefix.join('/')),
+    Arr.reverse,
+  )
 }
 
 const claudeFilePathsOf = (claudeConfig: ClaudeConfig) =>

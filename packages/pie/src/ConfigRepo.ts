@@ -98,7 +98,6 @@ type EnvironmentResolution = Effect.Effect<
   ConfigReferenceMissing | EnvironmentExtendsCycle
 >
 
-const CLAUDE_ENTRY_SEGMENT_COUNT = 2
 const EXECUTABLE_MODE_BITS = 0o111
 const REPOSITORY_NAME_PATTERN = /^\.*[\w-][\w.-]*\/\.*[\w-][\w.-]*$/u
 const REPOSITORY_DIRECTORY_PATTERN = /^\.*[^/.][^/]*(?:\/\.*[^/.][^/]*)*$/u
@@ -372,23 +371,6 @@ const agentClaudePathOf = (agentName: string) => `agents/${agentName}.md`
 
 const skillClaudePathOf = (skillName: string, skillPath: string) =>
   `skills/${skillName}/${skillPath}`
-
-export const claudeEntryOf = (claudePath: string) =>
-  Arr.take(claudePath.split('/'), CLAUDE_ENTRY_SEGMENT_COUNT).join('/')
-
-export const directoriesInsideClaudeEntryOf = (claudePath: string) => {
-  const segments = claudePath.split('/')
-
-  return pipe(
-    segments,
-    Arr.scan(Arr.empty<string>(), (prefix, segment) => [...prefix, segment]),
-    Arr.filter(
-      (prefix) => prefix.length >= CLAUDE_ENTRY_SEGMENT_COUNT && prefix.length < segments.length,
-    ),
-    Arr.map((prefix) => prefix.join('/')),
-    Arr.reverse,
-  )
-}
 
 export class ConfigFileUnparseable extends Schema.TaggedError<ConfigFileUnparseable>()(
   'ConfigFileUnparseable',
