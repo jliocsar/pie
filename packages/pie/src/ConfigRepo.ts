@@ -57,6 +57,17 @@ export interface HomeFile extends HomeSetFile {
   readonly mode: HomeSet['mode']
 }
 
+export interface ResolvedEnvironment {
+  readonly tools: Record.ReadonlyRecord<string, ToolRequest>
+  readonly env: Record.ReadonlyRecord<string, string>
+  readonly tasks: readonly TaskFile[]
+}
+
+interface EnvironmentSources {
+  readonly environments: Record.ReadonlyRecord<string, Environment>
+  readonly taskFiles: Record.ReadonlyRecord<string, ConfigFile>
+}
+
 interface Config {
   readonly environments: Record.ReadonlyRecord<string, ResolvedEnvironment>
   readonly recipes: Record.ReadonlyRecord<string, Recipe>
@@ -64,7 +75,6 @@ interface Config {
   readonly agents: Record.ReadonlyRecord<string, ClaudeFile>
   readonly settings: Record.ReadonlyRecord<string, ClaudeSettings>
   readonly skills: Record.ReadonlyRecord<string, readonly ClaudeFile[]>
-  readonly tasks: Record.ReadonlyRecord<string, ConfigFile>
   readonly homeSets: Record.ReadonlyRecord<string, readonly HomeSetFile[]>
   readonly claudeMd: Record.ReadonlyRecord<string, string>
 }
@@ -177,21 +187,16 @@ export const ToolRequest = Schema.Union([
 
 export type ToolRequest = typeof ToolRequest.Type
 
-export const ResolvedEnvironment = Schema.Struct({
-  label: Schema.String,
-  tools: Schema.Record(Schema.String, ToolRequest),
-  env: Schema.Record(Schema.String, Schema.String),
-  tasks: Schema.Array(nameOf('task')),
-})
-
-export type ResolvedEnvironment = typeof ResolvedEnvironment.Type
-
 export const Environment = Schema.Struct({
   extends: Schema.optionalKey(nameOf('environment')),
-  label: ResolvedEnvironment.fields.label,
-  tools: ResolvedEnvironment.fields.tools.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
-  env: ResolvedEnvironment.fields.env.pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
-  tasks: Schema.optionalKey(ResolvedEnvironment.fields.tasks),
+  label: Schema.String,
+  tools: Schema.Record(Schema.String, ToolRequest).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
+  env: Schema.Record(Schema.String, Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
+  tasks: Schema.optionalKey(Schema.Array(nameOf('task'))),
 })
 
 export type Environment = typeof Environment.Type
@@ -716,21 +721,26 @@ const lookUpReference =
       () => new ConfigReferenceMissing({ filePath, referenceKind, referenceName }),
     )
 
-const checkEnvironment = (
-  taskFiles: Record.ReadonlyRecord<string, ConfigFile>,
+const ROOT_ENVIRONMENT: ResolvedEnvironment = { tools: {}, env: {}, tasks: [] }
+
+const resolveTasks = (
+  taskFiles: EnvironmentSources['taskFiles'],
   environmentName: string,
-  environment: Environment,
-) =>
-  Effect.forEach(
-    Option.getOrElse(Option.fromUndefinedOr(environment.tasks), Arr.empty),
-    lookUpReference(configFilePathOf('environment', environmentName), 'task', taskFiles),
-    { discard: true },
+  taskNames: readonly string[],
+): Effect.Effect<readonly TaskFile[], ConfigReferenceMissing> =>
+  Effect.forEach(taskNames, (taskName) =>
+    Effect.map(
+      lookUpReference(
+        configFilePathOf('environment', environmentName),
+        'task',
+        taskFiles,
+      )(taskName),
+      (taskFile): TaskFile => ({ taskName, ...taskFile }),
+    ),
   )
 
-const ROOT_ENVIRONMENT: ResolvedEnvironment = { label: '', tools: {}, env: {}, tasks: [] }
-
 const resolveParentEnvironment = (
-  environments: Record.ReadonlyRecord<string, Environment>,
+  sources: EnvironmentSources,
   environmentChain: Arr.NonEmptyReadonlyArray<string>,
   parentName: string,
 ): EnvironmentResolution =>
@@ -741,10 +751,10 @@ const resolveParentEnvironment = (
         lookUpReference(
           configFilePathOf('environment', Arr.lastNonEmpty(environmentChain)),
           'environment',
-          environments,
+          sources.environments,
         )(parentName).pipe(
           Effect.flatMap((parent) =>
-            resolveEnvironment(environments, Arr.append(environmentChain, parentName), parent),
+            resolveEnvironment(sources, Arr.append(environmentChain, parentName), parent),
           ),
         ),
       onSome: (cycleStartIndex) =>
@@ -762,20 +772,28 @@ const resolveParentEnvironment = (
   )
 
 const resolveEnvironment = (
-  environments: Record.ReadonlyRecord<string, Environment>,
+  sources: EnvironmentSources,
   environmentChain: Arr.NonEmptyReadonlyArray<string>,
   environment: Environment,
 ): EnvironmentResolution =>
   Option.match(Option.fromUndefinedOr(environment.extends), {
     onNone: (): EnvironmentResolution => Effect.succeed(ROOT_ENVIRONMENT),
-    onSome: (parentName) => resolveParentEnvironment(environments, environmentChain, parentName),
+    onSome: (parentName) => resolveParentEnvironment(sources, environmentChain, parentName),
   }).pipe(
-    Effect.map((parent) => ({
-      label: environment.label,
-      tools: { ...parent.tools, ...environment.tools },
-      env: { ...parent.env, ...environment.env },
-      tasks: Option.getOrElse(Option.fromUndefinedOr(environment.tasks), () => parent.tasks),
-    })),
+    Effect.flatMap((parent) =>
+      Option.match(Option.fromUndefinedOr(environment.tasks), {
+        onNone: (): Effect.Effect<readonly TaskFile[], ConfigReferenceMissing> =>
+          Effect.succeed(parent.tasks),
+        onSome: (taskNames) =>
+          resolveTasks(sources.taskFiles, Arr.lastNonEmpty(environmentChain), taskNames),
+      }).pipe(
+        Effect.map((tasks) => ({
+          tools: { ...parent.tools, ...environment.tools },
+          env: { ...parent.env, ...environment.env },
+          tasks,
+        })),
+      ),
+    ),
   )
 
 const resolveRecipe = Effect.fn('resolveRecipe')(function* (
@@ -795,16 +813,6 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     config.environments,
   )(recipe.environment)
 
-  const tasks = yield* Effect.forEach(environment.tasks, (taskName) =>
-    Effect.map(
-      lookUpReference(
-        configFilePathOf('environment', recipe.environment),
-        'task',
-        config.tasks,
-      )(taskName),
-      (taskFile): TaskFile => ({ taskName, ...taskFile }),
-    ),
-  )
   const agentFiles = yield* Effect.forEach(
     recipe.claude.agents,
     lookUpReference(filePath, 'agent', config.agents),
@@ -887,10 +895,8 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
   )
 
   return {
-    label: recipe.label,
     tags: recipe.tags,
     environment,
-    tasks,
     repositories: recipe.repositories,
     home: homeFiles,
     claude: {
@@ -906,24 +912,19 @@ export type ResolvedRecipe = Effect.Success<ReturnType<typeof resolveRecipe>>
 
 const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
   const configNames = yield* listConfigNames(configDirectory)
-  const taskFiles = yield* loadEach(configNames.task, (taskName) =>
-    readConfigFile(configDirectory, configFilePathOf('task', taskName)),
-  )
-  const environments = yield* loadEach(
-    configNames.environment,
-    loadDecoded(configDirectory, 'environment', Bun.TOML, Environment),
-  )
-
-  yield* Effect.forEach(
-    Record.toEntries(environments),
-    ([environmentName, environment]) => checkEnvironment(taskFiles, environmentName, environment),
-    { discard: true },
-  )
-
+  const environmentSources: EnvironmentSources = {
+    taskFiles: yield* loadEach(configNames.task, (taskName) =>
+      readConfigFile(configDirectory, configFilePathOf('task', taskName)),
+    ),
+    environments: yield* loadEach(
+      configNames.environment,
+      loadDecoded(configDirectory, 'environment', Bun.TOML, Environment),
+    ),
+  }
   const config: Config = {
     environments: yield* Effect.all(
-      Record.map(environments, (environment, environmentName) =>
-        resolveEnvironment(environments, [environmentName], environment),
+      Record.map(environmentSources.environments, (environment, environmentName) =>
+        resolveEnvironment(environmentSources, [environmentName], environment),
       ),
     ),
     recipes: yield* loadEach(
@@ -944,7 +945,6 @@ const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
     skills: yield* loadEach(configNames.skill, (skillName) =>
       loadSkill(configDirectory, skillName),
     ),
-    tasks: taskFiles,
     homeSets: yield* loadEach(configNames.home, (homeName) =>
       loadHomeSet(configDirectory, homeName),
     ),
@@ -957,7 +957,7 @@ const loadConfig = Effect.fn('loadConfig')(function* (configDirectory: string) {
     Record.map(config.recipes, (recipe, recipeName) => resolveRecipe(config, recipeName, recipe)),
   )
 
-  return { ...config, names: configNames, recipes }
+  return { names: configNames, recipes }
 })
 
 export class ConfigRepo extends Context.Service<ConfigRepo>()('pie/ConfigRepo', {

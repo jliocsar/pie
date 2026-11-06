@@ -40,7 +40,7 @@ repositories = [
   { repo = "hapana-hub/hapana-gcp", integration = "hapana-gh-git" },
 ]
 skills = ["handoff"]
-mcp = ["fff"]
+mcp = ["fff", "executor"]
 home = ["shell", { name = "zsh", mode = "append" }]
 
 [claude]
@@ -114,9 +114,9 @@ describe('loadConfig', () => {
         const recipe = yield* Effect.fromOption(Record.get(config.recipes, 'personal'))
         const repositories: readonly Record.ReadonlyRecord<string, string>[] = recipe.repositories
 
-        expect(config.environments['personal']?.env).toEqual({ GH_HOST: 'github.int.exe.xyz' })
-        expect(config.settings).toEqual({ default: { model: 'opus' } })
-        expect(config.environments['personal']?.tools).toEqual({
+        expect(recipe.environment.env).toEqual({ GH_HOST: 'github.int.exe.xyz' })
+        expect(recipe.claude.settings).toEqual({ model: 'opus' })
+        expect(recipe.environment.tools).toEqual({
           node: { version: '24.19.0' },
           'github:dmtrKovalenko/fff': { version: '0.10.6', matching: 'fff-mcp', bin: 'fff-mcp' },
         })
@@ -151,7 +151,10 @@ describe('loadConfig', () => {
           },
         ])
         expect(
-          Arr.map(recipe.tasks, ({ taskName, content }) => [taskName, decodeText(content)]),
+          Arr.map(recipe.environment.tasks, ({ taskName, content }) => [
+            taskName,
+            decodeText(content),
+          ]),
         ).toEqual([
           ['workspace', VALID_CONFIG_FILES['tasks/workspace']],
           ['work/setup-gcloud', VALID_CONFIG_FILES['tasks/work/setup-gcloud']],
@@ -167,12 +170,12 @@ describe('loadConfig', () => {
           ['skills/handoff/scripts/greet', VALID_CONFIG_FILES['skills/handoff/scripts/greet']],
         ])
         expect(recipe.claude.claude_md).toEqual(['## Work\n', '## GCP\n'])
-        expect(config.mcpServers).toEqual({
+        expect(recipe.claude.mcpServers).toEqual({
           executor: { type: 'http', url: 'http://executor.int.exe.xyz/mcp' },
           fff: { type: 'stdio', command: 'fff-mcp', args: [] },
         })
-        expect(Record.keys(config.skills)).toEqual(['handoff'])
-        expect(Record.keys(config.tasks)).toEqual(['work/setup-gcloud', 'workspace'])
+        expect(config.names.skill).toEqual(['handoff'])
+        expect(config.names.task).toEqual(['work/setup-gcloud', 'workspace'])
       }),
     ))
 
@@ -202,14 +205,17 @@ describe('loadConfig', () => {
             'extends = "personal"\nlabel = "Node"\n\n[tools]\nnode = "25.0.0"\n\n[env]\nNODE_ENV = "development"\n',
           'environments/web.toml':
             'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n',
+          'recipes/node.toml': 'label = "Node"\nenvironment = "node"\n',
+          'recipes/web.toml': 'label = "Web"\nenvironment = "web"\n',
         })
+        const taskNamesOf = (recipeName: string) =>
+          Arr.map(config.recipes[recipeName]?.environment.tasks ?? [], (task) => task.taskName)
 
-        expect(config.environments['node']?.tasks).toEqual(['workspace', 'work/setup-gcloud'])
-        expect(config.environments['web']).toEqual({
-          label: 'Web',
+        expect(taskNamesOf('node')).toEqual(['workspace', 'work/setup-gcloud'])
+        expect(taskNamesOf('web')).toEqual(['workspace'])
+        expect(config.recipes['web']?.environment).toMatchObject({
           tools: { node: { version: '25.0.0' }, 'github:dmtrKovalenko/fff': { version: '0.11.0' } },
           env: { GH_HOST: 'github.int.exe.xyz', NODE_ENV: 'development' },
-          tasks: ['workspace'],
         })
       }),
     ))

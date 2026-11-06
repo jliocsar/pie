@@ -72,7 +72,7 @@ export const pod = Command.make('pod').pipe(
 
         yield* mise.install(recipe.environment)
         yield* homeSetsPlan.apply
-        yield* mise.runTasks(recipe.tasks)
+        yield* mise.runTasks(recipe.environment.tasks)
         yield* git.cloneMissingRepositories(recipeName, recipe.repositories)
         yield* claudePlan.apply
         yield* Console.log(
