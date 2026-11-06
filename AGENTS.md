@@ -247,6 +247,10 @@ instance is shared. Privacy isn't the argument: Effect declares `_tag` as a sche
 in its own docs. `Match.orElse` gives up exhaustiveness as well, so reach for it only where a new
 variant really belongs in the fallback. Enforced: `begone-slop/no-tag-access`.
 
+A plain string union gets the same treatment. What branches on a home set's mode or a box location's
+access goes through a record keyed by the whole union, so a new variant fails to compile rather than
+falling out of a refusal or a write (measured: adding one reported each record).
+
 Nested `reason` unions too — `SqlError`/`AiError` put the variant in `reason`, out of the failure
 channel, so `catchTag` misses it and some `effect-best-practices` snippets write `error.reason._tag`.
 Replacements per `references/core/error-handling.md`: `Effect.catchReason`, `Effect.catchReasons`,

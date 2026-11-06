@@ -5,6 +5,7 @@ import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
+import type * as Record from 'effect/Record'
 import * as Schema from 'effect/Schema'
 import { Box, shellBlockMarkersOf, withBlock, withoutBlock } from './Box.ts'
 import type { HomeFile } from './ConfigRepo.ts'
@@ -37,17 +38,24 @@ export class HomeFileNotPies extends Schema.TaggedError<HomeFileNotPies>()('Home
 
 const homeBlockMarkersOf = (homeName: string) => shellBlockMarkersOf(`home/${homeName}`)
 
-const copiedHomeFilesOf = (homeFiles: readonly HomeFile[]) =>
-  Arr.filter(homeFiles, (homeFile) => homeFile.mode === 'copy')
-
-const homeManifestOf = (homeFiles: readonly HomeFile[]): HomeManifest => ({
-  copiedFiles: Arr.map(copiedHomeFilesOf(homeFiles), (homeFile) => homeFile.homePath),
-  appendedBlocks: pipe(
-    homeFiles,
-    Arr.filter((homeFile) => homeFile.mode === 'append'),
-    Arr.map((homeFile) => ({ homePath: homeFile.homePath, homeName: homeFile.homeName })),
-  ),
+const homeFilesByModeOf = (
+  homeFiles: readonly HomeFile[],
+): Record.ReadonlyRecord<HomeFile['mode'], readonly HomeFile[]> => ({
+  copy: Arr.filter(homeFiles, (homeFile) => homeFile.mode === 'copy'),
+  append: Arr.filter(homeFiles, (homeFile) => homeFile.mode === 'append'),
 })
+
+const homeManifestOf = (homeFiles: readonly HomeFile[]): HomeManifest => {
+  const homeFilesByMode = homeFilesByModeOf(homeFiles)
+
+  return {
+    copiedFiles: Arr.map(homeFilesByMode.copy, (homeFile) => homeFile.homePath),
+    appendedBlocks: Arr.map(homeFilesByMode.append, (homeFile) => ({
+      homePath: homeFile.homePath,
+      homeName: homeFile.homeName,
+    })),
+  }
+}
 
 export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
   make: Effect.gen(function* () {
@@ -66,7 +74,7 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
     ) {
       yield* Effect.forEach(
         Arr.filter(
-          copiedHomeFilesOf(homeFiles),
+          homeFilesByModeOf(homeFiles).copy,
           (homeFile) => !Arr.contains(previousHomeManifest.copiedFiles, homeFile.homePath),
         ),
         (homeFile) => {
@@ -89,8 +97,8 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
       staleBlocks: readonly HomeManifest['appendedBlocks'][number][],
     ) {
       const appendedFilesHere = Arr.filter(
-        homeFiles,
-        (homeFile) => homeFile.mode === 'append' && homeFile.homePath === homePath,
+        homeFilesByModeOf(homeFiles).append,
+        (homeFile) => homeFile.homePath === homePath,
       )
       const staleBlocksHere = Arr.filter(
         staleBlocks,
@@ -140,7 +148,7 @@ export class HomeSets extends Context.Service<HomeSets>()('pie/HomeSets', {
             { discard: true },
           )
           yield* Effect.forEach(
-            copiedHomeFilesOf(homeFiles),
+            homeFilesByModeOf(homeFiles).copy,
             (homeFile) => box.writeFileIfChanged(path.join(box.home, homeFile.homePath), homeFile),
             { discard: true },
           )

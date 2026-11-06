@@ -82,8 +82,13 @@ const homePathsWith = (access: BoxLocation['access']) =>
     Arr.map(homePathOf),
   )
 
-export const PIE_OWNED_HOME_PATHS = homePathsWith('owned')
-export const APPEND_ONLY_HOME_PATHS = homePathsWith('appended')
+const homePathsByAccess: Record.ReadonlyRecord<BoxLocation['access'], readonly string[]> = {
+  owned: homePathsWith('owned'),
+  appended: homePathsWith('appended'),
+}
+
+export const PIE_OWNED_HOME_PATHS = homePathsByAccess.owned
+export const APPEND_ONLY_HOME_PATHS = homePathsByAccess.appended
 
 const withTrailingLineBreak = (text: string) =>
   text === '' || text.endsWith('\n') ? text : `${text}\n`

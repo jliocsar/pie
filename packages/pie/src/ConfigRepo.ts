@@ -105,6 +105,11 @@ const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
 
+const HOME_MODE_CLAIMS_WHOLE_FILE: Record.ReadonlyRecord<HomeSet['mode'], boolean> = {
+  copy: true,
+  append: false,
+}
+
 const CONFIG_LAYOUT: Record.ReadonlyRecord<ConfigKind, ConfigLayout> = {
   recipe: {
     directory: 'recipes',
@@ -860,7 +865,8 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     Arr.findFirst(
       homeFiles,
       (homeFile) =>
-        homeFile.mode === 'copy' && Arr.contains(APPEND_ONLY_HOME_PATHS, homeFile.homePath),
+        HOME_MODE_CLAIMS_WHOLE_FILE[homeFile.mode] &&
+        Arr.contains(APPEND_ONLY_HOME_PATHS, homeFile.homePath),
     ),
     {
       onNone: () => Effect.void,
@@ -872,7 +878,7 @@ const resolveRecipe = Effect.fn('resolveRecipe')(function* (
     Arr.findFirst(
       homeFiles,
       (homeFile) =>
-        homeFile.mode === 'copy' &&
+        HOME_MODE_CLAIMS_WHOLE_FILE[homeFile.mode] &&
         Arr.some(
           homeFiles,
           (otherHomeFile) =>
