@@ -162,7 +162,7 @@ reported.
 
 pie has no server and no database. Each VM reads the config repo itself.
 
-Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Box.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, and the marked blocks pie keeps in files it shares. It knows nothing about a config. `HomeSets.ts` puts a recipe's home files on it. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
+Each CLI command gets its own module in `commands/`, and `commands/Pod.ts` lists `pod up`'s steps in order. Below the commands, a module is the outside system it talks to: `ConfigRepo.ts` (the config repo's files), `EditorSchemas.ts` (what editors read from that repo), `ExeDev.ts` (tags, reflection and the GitHub integration), `Git.ts`, `Mise.ts` and `Claude.ts`. `Box.ts` is the box itself: HOME and the XDG dirs, file modes, reading and writing pod files, and the marked blocks pie keeps in files it shares. It knows nothing about a config. `HomeSets.ts` puts a recipe's home files on it. Don't cut by pipeline step (checkout, render, apply), since every step touches several systems.
 
 The box's top-level layout is one home-relative table: each place pie claims under HOME, the root it
 hangs off (HOME, the XDG config dir or the XDG cache dir), and whether pie owns it or only appends
@@ -402,9 +402,12 @@ flags a real name as a typo and nothing catches it.
 
 Every name that ends up in a path or a host is checked where it is decoded, never where it is used: the config repo, given or remembered, and a recipe repository are `<org>/<repo>` with no all-dots part, a repository's `dir` is relative with no empty, `.` or `..` segment, and an integration is a hostname label. Those checks are plain patterns, so the editor schemas carry them too. Recipe, repository and integration names are branded, since pie passes them side by side as strings.
 
-The loader is the only code that reads the config checkout. It returns every byte `pod up` puts
+The loader is the only code that reads what a config means. It returns every byte `pod up` puts
 on the box, agents, each skill's files, tasks and home files, with their executable bit, so
-nothing past it reads the checkout again and `pie check` reads exactly what `pod up` does. One
+nothing past it reads the checkout again and `pie check` reads exactly what `pod up` does. It
+returns the recipes and the names on disk, and keeps its other tables to itself. The editor schemas
+are the only other code touching a config repo, reading and writing what only editors use: `#:schema`
+lines and `.pie/schema/`. `sync` and `check` hold neither half. One
 table holds each kind's directory, extension and entry type, recipes included, and builds its
 paths, lists its names and loads it. A path bound for the box says its root in its field name,
 home-relative, `.claude`-relative or a task's name, so two roots never share one field.

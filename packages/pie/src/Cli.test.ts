@@ -18,13 +18,8 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 import { pie } from './Cli.ts'
-import { SchemaFileStale, SchemaLineMissing } from './commands/Check.ts'
-import {
-  ConfigFileInvalid,
-  ConfigReferenceMissing,
-  schemaFilePathOf,
-  type TomlKind,
-} from './ConfigRepo.ts'
+import { ConfigFileInvalid, ConfigReferenceMissing } from './ConfigRepo.ts'
+import { SchemaFileStale, SchemaLineMissing } from './EditorSchemas.ts'
 import { ClaudeEntryNotPies, claudeInstructionsOf, McpServerNotPies } from './Claude.ts'
 import {
   RecipeTagMissing,
@@ -284,12 +279,12 @@ const writeOwnClaudeSettings = Effect.fn('writeOwnClaudeSettings')(function* (
 
 const readSchemaDefinitions = Effect.fn('readSchemaDefinitions')(function* (
   configDirectory: string,
-  tomlKind: TomlKind,
+  tomlKind: 'recipe' | 'environment' | 'mcp',
 ) {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const schemaText = yield* fileSystem.readFileString(
-    path.join(configDirectory, schemaFilePathOf(tomlKind)),
+    path.join(configDirectory, '.pie', 'schema', `${tomlKind}.json`),
   )
   const { $defs } = yield* Schema.decodeEffect(
     Schema.fromJsonString(Schema.Struct({ $defs: Schema.Unknown })),

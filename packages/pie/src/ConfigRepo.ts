@@ -3,7 +3,6 @@ import { pipe } from 'effect/Function'
 import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
-import * as JsonSchema from 'effect/JsonSchema'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Order from 'effect/Order'
@@ -90,8 +89,6 @@ const REPOSITORY_DIRECTORY_PATTERN = /^\.*[^/.][^/]*(?:\/\.*[^/.][^/]*)*$/u
 const FRONTMATTER_PATTERN = /^---\r?\n(?<yaml>[\s\S]*?)\r?\n---(?:\r?\n|$)/u
 const STRICT_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'error' }
 const FRONTMATTER_PARSE_OPTIONS: SchemaAST.ParseOptions = { onExcessProperty: 'ignore' }
-
-export const SCHEMA_DIRECTORY = '.pie/schema'
 
 const CONFIG_LAYOUT: Record.ReadonlyRecord<ConfigKind, ConfigLayout> = {
   recipe: {
@@ -306,7 +303,7 @@ const StdioMcpServer = Schema.Struct({
 
 export const McpServer = Schema.Union([HttpMcpServer, StdioMcpServer])
 
-const McpServerFile = Schema.Union([
+export const McpServerFile = Schema.Union([
   Schema.Struct({ url: HttpMcpServer.fields.url }).pipe(
     Schema.decodeTo(
       HttpMcpServer,
@@ -347,17 +344,11 @@ export const ClaudeSettings = Schema.Record(Schema.String, Schema.Unknown)
 
 export type ClaudeSettings = typeof ClaudeSettings.Type
 
-export const tomlSchemas = { recipe: Recipe, environment: Environment, mcp: McpServerFile }
-
-export type TomlKind = keyof typeof tomlSchemas
-
 const configEntryPathOf = (configKind: ConfigKind, name: string) =>
   `${CONFIG_LAYOUT[configKind].directory}/${name}${CONFIG_LAYOUT[configKind].extension}`
 
 export const configFilePathOf = (configKind: ConfigKind, name: string) =>
   `${configEntryPathOf(configKind, name)}${CONFIG_LAYOUT[configKind].indexPath}`
-
-export const schemaFilePathOf = (tomlKind: TomlKind) => `${SCHEMA_DIRECTORY}/${tomlKind}.json`
 
 export class ConfigFileUnparseable extends Schema.TaggedError<ConfigFileUnparseable>()(
   'ConfigFileUnparseable',
@@ -593,31 +584,6 @@ const listConfigNames = Effect.fn('listConfigNames')(function* (configDirectory:
 
   return configNames
 })
-
-const renderJsonSchema = (schema: Schema.Top, configNames: ConfigNames) => {
-  const document = Schema.toJsonSchemaDocument(schema, { onExcessProperty: 'error' })
-  const definitions = Record.map(document.definitions, (definition, identifier) =>
-    Option.match(Option.liftPredicate(identifier, Schema.is(ReferenceKind)), {
-      onNone: () => definition,
-      onSome: (referenceKind) => ({ type: 'string', enum: configNames[referenceKind] }),
-    }),
-  )
-
-  return `${JSON.stringify(
-    { $schema: JsonSchema.META_SCHEMA_URI_DRAFT_2020_12, ...document.schema, $defs: definitions },
-    null,
-    2,
-  )}\n`
-}
-
-export const renderSchemaFiles = (configNames: ConfigNames) =>
-  Record.fromEntries(
-    Arr.map(
-      Record.toEntries(tomlSchemas),
-      ([tomlKind, schema]) =>
-        [schemaFilePathOf(tomlKind), renderJsonSchema(schema, configNames)] as const,
-    ),
-  )
 
 const loadEach = <Loaded, Failure, Requirements>(
   names: readonly string[],
