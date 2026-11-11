@@ -34,6 +34,9 @@ tasks = ["workspace"]
 node = "24.19.0"
 "github:dmtrKovalenko/fff" = { version = "0.10.6", matching = "fff-mcp", bin = "fff-mcp" }
 
+[packages]
+"apt:zsh" = "latest"
+
 [env]
 GH_HOST = "github.int.exe.xyz"
 `,

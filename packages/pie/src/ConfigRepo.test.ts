@@ -194,9 +194,9 @@ describe('loadConfig', () => {
         const config = yield* loadConfigFrom({
           ...VALID_CONFIG_FILES,
           'environments/node.toml':
-            'extends = "personal"\nlabel = "Node"\n\n[tools]\nnode = "25.0.0"\n\n[env]\nNODE_ENV = "development"\n',
+            'extends = "personal"\nlabel = "Node"\n\n[tools]\nnode = "25.0.0"\n\n[packages]\n"apt:zsh" = "latest"\n"apt:jq" = "latest"\n\n[env]\nNODE_ENV = "development"\n',
           'environments/web.toml':
-            'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n\n[env]\nGH_HOST = "web.example"\n',
+            'extends = "node"\nlabel = "Web"\ntasks = ["workspace"]\n\n[tools]\n"github:dmtrKovalenko/fff" = "0.11.0"\n\n[packages]\n"apt:jq" = "1.7.1-3"\n\n[env]\nGH_HOST = "web.example"\n',
           'recipes/node.toml': 'label = "Node"\nenvironment = "node"\n',
           'recipes/web.toml': 'label = "Web"\nenvironment = "web"\n',
         })
@@ -208,6 +208,10 @@ describe('loadConfig', () => {
         expect(config.recipes['web']?.environment.tools).toEqual({
           node: { version: '25.0.0' },
           'github:dmtrKovalenko/fff': { version: '0.11.0' },
+        })
+        expect(config.recipes['web']?.environment.packages).toEqual({
+          'apt:zsh': 'latest',
+          'apt:jq': '1.7.1-3',
         })
         expect(config.recipes['web']?.environment.env).toEqual({
           GH_HOST: 'web.example',

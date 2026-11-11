@@ -56,7 +56,11 @@ const PERSONAL_POD_TAGS = ['pie', 'pie-recipe-personal']
 const CHECKED_OUT_REPOSITORY_DIRECTORIES = ['jliocsar/pie', 'nidus']
 const TEMPORARY_FILE_RUN_PATTERN = /^(?<runner>exec --|sh|curl .*) \/\S*\/(?<fileName>[^/\s]+)$/u
 const INTEGRATIONS_WITH_LOCAL_REPOSITORIES = ['github', 'hapana-gh-git']
-const TOOL_AND_TASK_CALLS = ['install', 'exec -- <temporary>/workspace']
+
+const TOOL_AND_TASK_CALLS = [
+  'bootstrap --only packages,tools --update',
+  'exec -- <temporary>/workspace',
+]
 
 const MCP_ADD_CALLS = [
   'exec -- claude mcp add-json --scope user fff {"type":"stdio","command":"fff-mcp","args":[]}',
@@ -388,6 +392,7 @@ describe('pie pod up', () => {
               },
             },
             env: { GH_HOST: 'github.int.exe.xyz' },
+            bootstrap: { packages: { 'apt:zsh': 'latest' } },
           })
           expect(firstSnapshot['CLAUDE.md']?.text).toContain(
             `\`${pieConfigDirectory}/*manifest.json\``,

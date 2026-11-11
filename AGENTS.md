@@ -556,7 +556,7 @@ Pie runs mise from `~/.local/bin/mise` and never looks it up on `PATH`: that dir
 `PATH` a plain `ssh vm cmd` gets, and the tests' fake spawner records it by that path. Every command it
 runs gets stdin closed, because under `curl | sh` stdin is the script itself.
 
-The environment lands in mise's global `conf.d` as `pie.toml`, so `mise install` runs from home and
+The environment lands in mise's global `conf.d` as `pie.toml`, so `mise bootstrap` runs from home and
 every later command goes through `mise exec`. `pod up` adds mise's shims directory to `~/.profile`.
 zsh never reads `~/.profile`, so `~/.zshrc` gets `mise activate` instead. That puts the tools, the
 `mise` command and the environment's `[env]` in the shell itself. Shims carry `[env]` only into
@@ -565,8 +565,20 @@ what runs through them: with shims alone, a login zsh had no `GH_HOST`, and node
 temporary copy on every `up`, so they must be idempotent. A repository clones over https only when
 its directory is missing, and is never pulled.
 
-An environment can `extends` one other, and chains resolve all the way down. `tools` and `env`
-merge key by key with the child winning. A tool's entry is replaced whole rather than merging its
+An environment's system packages go into that same file as mise's `[bootstrap.packages]`, and `pod
+up` runs `mise bootstrap --only packages,tools --update` where it used to run `mise install`. mise
+reads `[bootstrap]` from `conf.d` with no `mise trust`, applies it with stdin closed and no `--yes`,
+and with `--update` runs `apt-get update` only when a package is missing, so a rerun leaves apt alone
+(measured on mise 2026.10.8 on exeuntu). `mise bootstrap` arrived in 2026.6.6, and pie never updates
+mise itself, so a box with an older one fails at that step. A login shell stays a task: a pod's
+account has a locked password and PAM's `chsh` config wants one unless root asks, so mise's
+`[bootstrap.user]` couldn't change it (read from the box's config, not run). Pie writes the mise
+config and keeps the rest of `pod up`'s steps itself rather than handing them to bootstrap's
+`[dotfiles]` and `[bootstrap.repos]`: those overwrite a copied file pie didn't write, and leave
+behind what a config drops (read in mise's docs, not run).
+
+An environment can `extends` one other, and chains resolve all the way down. `tools`, `packages`
+and `env` merge key by key with the child winning. A tool's entry is replaced whole rather than merging its
 options, so what a file says about a tool is all of it. `tasks` is replaced whole as well: leaving
 it out inherits the parent's, and `[]` clears them. `label` never inherits, since it names that one
 file. Every environment resolves in the loader, used or not, so `pie check` catches a broken chain

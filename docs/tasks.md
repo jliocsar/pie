@@ -6,10 +6,10 @@ A task is an executable script, `tasks/<name>`, that an environment lists. Tasks
 #!/bin/sh
 set -eu
 
-command -v zsh >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y zsh; }
+[ -d "$HOME/notes" ] || git clone https://github.int.exe.xyz/me/notes.git "$HOME/notes"
 ```
 
-Reach for a task only when nothing declarative covers it. A tool goes in an environment's `[tools]`, a dotfile in a [home set](home-sets.md), a repo in `repositories`. Tasks are for the rest: apt packages, the login shell, cloning something outside `~/workspace`.
+Reach for a task only when nothing declarative covers it. A tool goes in an environment's `[tools]`, a system package in its [`[packages]`](environments.md#packages), a dotfile in a [home set](home-sets.md), a repo in `repositories`. Tasks are for the rest: the login shell, cloning something outside `~/workspace`.
 
 ## Rules
 

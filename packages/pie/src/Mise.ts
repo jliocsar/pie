@@ -10,6 +10,7 @@ import { BOX_LAYOUT, Box, shellBlockMarkersOf, shellPathOf, withBlock } from './
 import { Process } from './Process.ts'
 
 const MISE_INSTALLER_URL = 'https://mise.run'
+const MISE_BOOTSTRAP_PARTS = 'packages,tools'
 const MISE_TOOL_AUTO_UPDATE_LINE = 'tool_update.global_auto = true'
 const MISE_SHIMS_PATH_LINE = `export PATH="${shellPathOf(BOX_LAYOUT.miseDataDirectory)}/shims:$PATH"`
 const MISE_ZSH_ACTIVATE_LINE = `eval "$(${shellPathOf(BOX_LAYOUT.miseBinary)} activate zsh)"`
@@ -36,6 +37,10 @@ const miseConfigOf = (environment: ResolvedEnvironment) =>
     ...tomlTableOf(
       'env',
       Record.map(environment.env, (envValue) => JSON.stringify(envValue)),
+    ),
+    ...tomlTableOf(
+      'bootstrap.packages',
+      Record.map(environment.packages, (packageVersion) => JSON.stringify(packageVersion)),
     ),
     '',
   ].join('\n')
@@ -73,7 +78,7 @@ export class Mise extends Context.Service<Mise>()('pie/Mise', {
         path.join(box.paths.miseConfigDirectory, 'conf.d', 'pie.toml'),
         { content: miseConfigOf(environment), executable: false },
       )
-      yield* runMise(['install'])
+      yield* runMise(['bootstrap', '--only', MISE_BOOTSTRAP_PARTS, '--update'])
       yield* box.updateTextFile(box.paths.profile, (text) =>
         withBlock(text, shellBlockMarkersOf('mise'), MISE_SHIMS_PATH_LINE),
       )

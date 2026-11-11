@@ -60,6 +60,7 @@ export interface HomeFile extends HomeSetFile {
 
 export interface ResolvedEnvironment {
   readonly tools: Record.ReadonlyRecord<string, ToolRequest>
+  readonly packages: Record.ReadonlyRecord<string, string>
   readonly env: Record.ReadonlyRecord<string, string>
   readonly tasks: readonly TaskFile[]
 }
@@ -208,6 +209,9 @@ const Environment = Schema.Struct({
   extends: Schema.optionalKey(nameOf('environment')),
   label: Schema.String,
   tools: Schema.Record(Schema.String, ToolRequest).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
+  packages: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed({})),
   ),
   env: Schema.Record(Schema.String, Schema.String).pipe(
@@ -729,7 +733,7 @@ const lookUpReference =
       () => new ConfigReferenceMissing({ filePath, referenceKind, referenceName }),
     )
 
-const ROOT_ENVIRONMENT: ResolvedEnvironment = { tools: {}, env: {}, tasks: [] }
+const ROOT_ENVIRONMENT: ResolvedEnvironment = { tools: {}, packages: {}, env: {}, tasks: [] }
 
 const resolveTasks = (
   taskFiles: EnvironmentSources['taskFiles'],
@@ -797,6 +801,7 @@ const resolveEnvironment = (
       }).pipe(
         Effect.map((tasks) => ({
           tools: { ...parent.tools, ...environment.tools },
+          packages: { ...parent.packages, ...environment.packages },
           env: { ...parent.env, ...environment.env },
           tasks,
         })),

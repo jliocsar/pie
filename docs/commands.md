@@ -17,7 +17,7 @@ Runs on a pod and applies its recipe. The first run needs the config repo, and l
 3. Loads the whole config, the same way `pie check` does, and finds the recipe.
 4. Checks that the VM carries every tag in the recipe's `tags`.
 5. Checks that nothing it's about to write belongs to someone else: an agent, skill or MCP server pie didn't add, or a copied home file pie didn't write.
-6. Installs the environment's tools with mise, and writes its `[env]`.
+6. Installs the environment's system packages and tools with `mise bootstrap`, and writes its `[env]`.
 7. Writes the home sets.
 8. Runs the environment's tasks, in order.
 9. Clones repositories whose directories are missing.
@@ -34,7 +34,7 @@ Steps 1 to 5 write nothing outside pie's own copy of the config repo, so a missi
 
 - removes what the recipe dropped: home files, agents, skills, settings keys, MCP servers and `CLAUDE.md` text
 - overwrites edits made on the pod to anything pie owns, so change the config repo instead
-- leaves repositories alone once they're cloned
+- leaves repositories alone once they're cloned, and never uninstalls a package or a tool
 
 pie records what it owns in manifests under `~/.config/pie/`, or `$XDG_CONFIG_HOME/pie/` on a box setting it. Before writing, it saves the old and new lists together, so a run that dies halfway never leaves pie's own files looking like someone else's.
 
